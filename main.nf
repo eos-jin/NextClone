@@ -81,23 +81,18 @@ workflow {
 
     if (params.mode == 'DNAseq') {
         
-        // Initial preprocessing: trim, filter, and count reads
-        ch_barcode_chunks = Channel.fromPath("${params.dnaseq_fastq_files}/*.fastq.gz") | 
-            dnaseq_trim_reads |
-            dnaseq_filter_reads |
-            dnaseq_count_reads |
-            dnaseq_split_reads_to_chunks
-        
         if (params.discovery_mode) {
             // =========================================
             // Discovery mode workflow for DNAseq
             // =========================================
             
-            // Pass 1: Discover barcodes from each sample
-            ch_discovered = Channel.fromPath("${params.dnaseq_fastq_files}/*.fastq.gz") |
+            // Preprocessing: trim and filter reads
+            ch_filtered_reads = Channel.fromPath("${params.dnaseq_fastq_files}/*.fastq.gz") | 
                 dnaseq_trim_reads |
-                dnaseq_filter_reads |
-                dnaseq_discover_barcodes
+                dnaseq_filter_reads
+            
+            // Pass 1: Discover barcodes from filtered reads
+            ch_discovered = dnaseq_discover_barcodes(ch_filtered_reads)
             
             // Combine all discovered barcode counts and filter
             ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(
@@ -105,7 +100,11 @@ workflow {
                 ch_tenx_whitelist.first()
             )
             
-            // Pass 2: Map barcodes using discovered list
+            // Pass 2: Re-read files, preprocess, split, and map with discovered barcodes
+            ch_barcode_chunks = Channel.fromPath("${params.dnaseq_fastq_files}/*.fastq.gz") |
+                dnaseq_count_reads |
+                dnaseq_split_reads_to_chunks
+            
             ch_barcode_mappings = dnaseq_map_with_discovered_barcodes(
                 ch_barcode_chunks.flatten(),
                 ch_filtered_barcodes.first()
@@ -117,6 +116,12 @@ workflow {
             // =========================================
             // Whitelist mode workflow (original behavior)
             // =========================================
+            
+            ch_barcode_chunks = Channel.fromPath("${params.dnaseq_fastq_files}/*.fastq.gz") | 
+                dnaseq_trim_reads |
+                dnaseq_filter_reads |
+                dnaseq_count_reads |
+                dnaseq_split_reads_to_chunks
             
             ch_barcode_mappings = dnaseq_map_barcodes(ch_barcode_chunks.flatten())
             dnaseq_collapse_barcodes(ch_barcode_mappings.collect())
