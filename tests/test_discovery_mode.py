@@ -46,24 +46,22 @@ def generate_quality_string(length):
     return "I" * length
 
 
-def generate_fastq_read(read_id, barcode, include_5prime=False):
+def generate_fastq_read(read_id, barcode):
     """
-    Generate a single FASTQ read with the barcode flanked by adapters.
+    Generate a single FASTQ read with the barcode flanked by BOTH adapters.
     
-    Format: [5' adapter (optional)][BARCODE][3' adapter]
+    Format: [5' adapter][BARCODE][3' adapter]
+    
+    This matches the NextClone expected input structure where flexiplex
+    searches for: -x 5'adapter -b barcode -x 3'adapter
     """
-    if include_5prime:
-        sequence = f"{ADAPTER_5PRIME}{barcode}{ADAPTER_3PRIME}"
-    else:
-        # Match the existing test data format (barcode + 3' adapter only)
-        sequence = f"{barcode}{ADAPTER_3PRIME}"
-    
+    sequence = f"{ADAPTER_5PRIME}{barcode}{ADAPTER_3PRIME}"
     quality = generate_quality_string(len(sequence))
     
     return f"@{read_id}\n{sequence}\n+\n{quality}\n"
 
 
-def create_synthetic_fastq(output_path, barcodes, reads_per_barcode=10, include_5prime=False):
+def create_synthetic_fastq(output_path, barcodes, reads_per_barcode=10):
     """
     Create a synthetic FASTQ file with known barcodes.
     
@@ -71,7 +69,9 @@ def create_synthetic_fastq(output_path, barcodes, reads_per_barcode=10, include_
         output_path: Path to output .fastq.gz file
         barcodes: List of barcode sequences to include
         reads_per_barcode: Number of reads to generate per barcode
-        include_5prime: Whether to include 5' adapter
+    
+    Read structure: [5' adapter][BARCODE][3' adapter]
+    This matches NextClone's expected input format.
     """
     read_count = 0
     
@@ -79,7 +79,7 @@ def create_synthetic_fastq(output_path, barcodes, reads_per_barcode=10, include_
         for barcode in barcodes:
             for i in range(reads_per_barcode):
                 read_id = f"TEST_READ_{read_count}:1:1:1:{read_count} 1:N:0:AACTTGAC"
-                f.write(generate_fastq_read(read_id, barcode, include_5prime))
+                f.write(generate_fastq_read(read_id, barcode))
                 read_count += 1
     
     print(f"Created {output_path} with {read_count} reads ({len(barcodes)} barcodes × {reads_per_barcode} reads)")
@@ -179,16 +179,18 @@ def test_synthetic_data_structure():
             print(f"   ❌ FAIL: Expected {expected_lines} lines, got {len(lines)}")
             return False
         
-        # Check first read has correct structure
+        # Check first read has correct structure (5' adapter + barcode + 3' adapter)
         first_seq = lines[1].strip()
-        if ADAPTER_3PRIME in first_seq:
-            print(f"   ✅ PASS: 3' adapter found in sequence")
+        if ADAPTER_5PRIME in first_seq and ADAPTER_3PRIME in first_seq:
+            print(f"   ✅ PASS: Both 5' and 3' adapters found in sequence")
         else:
-            print(f"   ❌ FAIL: 3' adapter not found")
+            print(f"   ❌ FAIL: Expected both adapters in sequence")
+            print(f"   Sequence: {first_seq}")
             return False
         
-        # Check barcode is correct length
-        barcode_region = first_seq[:BARCODE_LENGTH]
+        # Check barcode is correct length (between the adapters)
+        barcode_start = len(ADAPTER_5PRIME)
+        barcode_region = first_seq[barcode_start:barcode_start + BARCODE_LENGTH]
         if barcode_region in TEST_BARCODES:
             print(f"   ✅ PASS: Valid barcode found: {barcode_region}")
         else:
@@ -228,12 +230,14 @@ def test_flexiplex_discovery():
                 f_out.write(f_in.read())
         
         # Run flexiplex in discovery mode (no -k flag, -f 0 for strict match)
+        # Must include BOTH 5' and 3' adapters in order: -x 5' -b barcode -x 3'
         print("\n   Running Flexiplex discovery mode...")
         result = subprocess.run(
             ["flexiplex",
-             "-x", ADAPTER_3PRIME,
+             "-x", ADAPTER_5PRIME,
              "-b", "?" * BARCODE_LENGTH,
              "-u", "",
+             "-x", ADAPTER_3PRIME,
              "-f", "0",  # Strict flanking match for discovery
              "-n", "discovery_test",
              str(fastq_unzipped)],
