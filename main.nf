@@ -42,7 +42,36 @@ include {
 
 workflow {
 
-    // Create channel for optional 10x whitelist (used in discovery mode)
+    // =============================================================================
+    // Parameter validation
+    // =============================================================================
+    
+    // Validate: discovery_mode = false requires clone_barcodes_reference
+    if (!params.discovery_mode && !params.clone_barcodes_reference) {
+        error """
+        ERROR: Parameter 'clone_barcodes_reference' is required when 'discovery_mode = false'.
+        
+        Either:
+        1. Provide a barcode whitelist: --clone_barcodes_reference /path/to/barcodes.txt
+        2. Enable discovery mode: --discovery_mode true
+        
+        See documentation for details: https://phipsonlab.github.io/NextClone/
+        """
+    }
+    
+    // Validate: discovery_mode = true should not use clone_barcodes_reference (warn if provided)
+    if (params.discovery_mode && params.clone_barcodes_reference) {
+        log.warn """
+        WARNING: 'clone_barcodes_reference' is ignored when 'discovery_mode = true'.
+        Barcodes will be discovered from the data instead.
+        """
+    }
+
+    // =============================================================================
+    // Channel setup
+    // =============================================================================
+
+    // Create channel for optional 10x whitelist (used in discovery mode filtering)
     // If not provided, use a placeholder file
     if (params.tenx_whitelist) {
         ch_tenx_whitelist = Channel.fromPath(params.tenx_whitelist)
