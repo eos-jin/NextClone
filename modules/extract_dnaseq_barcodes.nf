@@ -1,5 +1,12 @@
 #!/usr/bin/env nextflow
 
+// =============================================================================
+// DNA-seq clone barcode extraction module
+// Supports two modes:
+// 1. Whitelist mode (default): Use known barcode reference
+// 2. Discovery mode: Two-pass approach to discover barcodes from data
+// =============================================================================
+
 process dnaseq_trim_reads {
     label 'medium'
     conda "${projectDir}/conda_env/extract_dnaseq_env.yaml"
@@ -96,7 +103,72 @@ process dnaseq_split_reads_to_chunks {
     """
 }
 
+// =============================================================================
+// Discovery mode processes for DNA-seq
+// =============================================================================
+
+process dnaseq_discover_barcodes {
+    // Pass 1: Run flexiplex WITHOUT -k to discover barcodes from data
+    // Uses -f 0 for strict flanking sequence match
+    label 'small'
+
+    input:
+        path fastq_file
+
+    output:
+        path "${sample_name}_barcodes_counts.txt"
+
+    script:
+    sample_name = fastq_file.getSimpleName()
+    fastq_w_adapter = sample_name + "_wDummyAdaptor.fq"
+    """
+    zcat $fastq_file | sed 's/^/START/g' | sed 's/START@/@/g' > ${fastq_w_adapter}
+    
+    # Run flexiplex in discovery mode (no -k flag)
+    flexiplex \
+        -x "START" \
+        -b ${params.barcode_length_chr} \
+        -u "" \
+        -x "" \
+        -f 0 \
+        -n $sample_name \
+        -p ${task.cpus} \
+        ${fastq_w_adapter}
+    
+    """
+}
+
+process dnaseq_filter_discovered_barcodes {
+    // Filter discovered barcodes using flexiplex-filter
+    // Uses knee-plot inflection point method
+    label 'small'
+    
+    input:
+        path barcode_counts
+        path tenx_whitelist
+
+    output:
+        path "filtered_barcodes.txt"
+
+    script:
+        def whitelist_arg = tenx_whitelist.name != 'NO_FILE' ? "--whitelist ${tenx_whitelist}" : ""
+    """
+    #!/usr/bin/bash
+    
+    # Run flexiplex-filter to select high-quality barcodes
+    flexiplex-filter \
+        ${whitelist_arg} \
+        --outfile filtered_barcodes.txt \
+        ${barcode_counts}
+    """
+}
+
+// =============================================================================
+// Mapping processes (whitelist and discovery mode)
+// =============================================================================
+
 process dnaseq_map_barcodes {
+    // Map barcodes using known reference (whitelist mode)
     // Ran flexiplex per fasta chunk
     // Then combine the counting of read (flexiplex discovery)
     // and the mapped barcode
@@ -123,6 +195,42 @@ process dnaseq_map_barcodes {
         -f 0 \
         -n ${sample_name} \
         -k ${params.clone_barcodes_reference} \
+        -e ${params.barcode_edit_distance} \
+        -p ${task.cpus} \
+        ${unmapped_fasta}
+
+    dnaseq_combine_read_cnt_map.py --unmapped_chunk ${unmapped_fasta} \
+                                --mapped_chunk ${mapped_chunk} \
+                                --out_file ${out_file}
+    """
+}
+
+process dnaseq_map_with_discovered_barcodes {
+    // Pass 2: Map barcodes using discovered/filtered barcode list
+    label "${params.mapping_process_profile}"
+    conda "${projectDir}/conda_env/extract_dnaseq_env.yaml"
+
+    input:
+        path unmapped_fasta
+        path discovered_barcodes
+
+    output:
+        path "${out_file}"
+
+    script:
+    sample_name = unmapped_fasta.getSimpleName()
+    mapped_chunk = sample_name + "_reads_barcodes.txt"
+    out_file = sample_name + "_mapped.csv"
+    """
+
+    flexiplex \
+        -x "START" \
+        -b ${params.barcode_length_chr} \
+        -u "" \
+        -x "" \
+        -f 0 \
+        -n ${sample_name} \
+        -k ${discovered_barcodes} \
         -e ${params.barcode_edit_distance} \
         -p ${task.cpus} \
         ${unmapped_fasta}
