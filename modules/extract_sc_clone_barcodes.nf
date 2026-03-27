@@ -131,21 +131,16 @@ process sc_filter_discovered_barcodes {
     
     input:
         path barcode_counts
-        path tenx_whitelist
 
     output:
         path "filtered_barcodes.txt"
 
-    script:
-        // Build the whitelist argument if provided
-        def whitelist_arg = tenx_whitelist.name != 'NO_FILE' ? "--whitelist ${tenx_whitelist}" : ""
     """
     #!/usr/bin/bash
     
     # Run flexiplex-filter to select high-quality barcodes
-    # Uses knee-plot inflection point method by default
+    # Uses knee-plot inflection point method
     flexiplex-filter \
-        ${whitelist_arg} \
         --outfile filtered_barcodes.txt \
         ${barcode_counts}
     """
@@ -157,13 +152,10 @@ process sc_merge_discovered_barcodes {
     
     input:
         path barcode_counts_files
-        path tenx_whitelist
 
     output:
         path "filtered_barcodes.txt"
 
-    script:
-        def whitelist_arg = tenx_whitelist.name != 'NO_FILE' ? "--whitelist ${tenx_whitelist}" : ""
     """
     #!/usr/bin/bash
     
@@ -173,9 +165,8 @@ process sc_merge_discovered_barcodes {
         awk '{counts[\$1] += \$2} END {for (bc in counts) print bc "\\t" counts[bc]}' | \
         sort -k2 -nr > combined_barcodes_counts.txt
     
-    # Run flexiplex-filter on combined counts
+    # Run flexiplex-filter on combined counts using knee-plot method
     flexiplex-filter \
-        ${whitelist_arg} \
         --outfile filtered_barcodes.txt \
         combined_barcodes_counts.txt
     """

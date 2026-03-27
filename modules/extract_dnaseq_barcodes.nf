@@ -145,19 +145,15 @@ process dnaseq_filter_discovered_barcodes {
     
     input:
         path barcode_counts
-        path tenx_whitelist
 
     output:
         path "filtered_barcodes.txt"
 
-    script:
-        def whitelist_arg = tenx_whitelist.name != 'NO_FILE' ? "--whitelist ${tenx_whitelist}" : ""
     """
     #!/usr/bin/bash
     
-    # Run flexiplex-filter to select high-quality barcodes
+    # Run flexiplex-filter to select high-quality barcodes using knee-plot method
     flexiplex-filter \
-        ${whitelist_arg} \
         --outfile filtered_barcodes.txt \
         ${barcode_counts}
     """

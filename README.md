@@ -45,7 +45,7 @@ nextflow run main.nf --discovery_mode true
 Optionally, provide a 10x barcode whitelist to filter discovered barcodes:
 
 ```bash
-nextflow run main.nf --discovery_mode true --tenx_whitelist /path/to/3M-february-2018.txt
+
 ```
 
 ### Parameters
@@ -53,7 +53,7 @@ nextflow run main.nf --discovery_mode true --tenx_whitelist /path/to/3M-february
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `discovery_mode` | `false` | Enable two-pass barcode discovery mode |
-| `tenx_whitelist` | `null` | Optional path to 10x barcode whitelist for filtering |
+
 
 When `discovery_mode = false` (default), the pipeline requires `clone_barcodes_reference` to be provided with a list of known barcodes.
 

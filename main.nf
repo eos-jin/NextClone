@@ -67,17 +67,7 @@ workflow {
         """
     }
 
-    // =============================================================================
-    // Channel setup
-    // =============================================================================
 
-    // Create channel for optional 10x whitelist (used in discovery mode filtering)
-    // If not provided, use a placeholder file
-    if (params.tenx_whitelist) {
-        ch_tenx_whitelist = Channel.fromPath(params.tenx_whitelist)
-    } else {
-        ch_tenx_whitelist = Channel.of(file('NO_FILE'))
-    }
 
     if (params.mode == 'DNAseq') {
         
@@ -94,10 +84,9 @@ workflow {
             // Pass 1: Discover barcodes from filtered reads
             ch_discovered = dnaseq_discover_barcodes(ch_filtered_reads)
             
-            // Combine all discovered barcode counts and filter
+            // Combine all discovered barcode counts and filter using knee-plot method
             ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(
-                ch_discovered.collectFile(name: 'combined_barcodes_counts.txt'),
-                ch_tenx_whitelist.first()
+                ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
             )
             
             // Pass 2: Re-read files, preprocess, split, and map with discovered barcodes
@@ -146,10 +135,9 @@ workflow {
             // Pass 1: Discover barcodes from each chunk
             ch_discovered = sc_discover_barcodes(ch_unmapped_fastas[0].flatten())
             
-            // Combine all discovered barcode counts and filter
+            // Combine all discovered barcode counts and filter using knee-plot method
             ch_filtered_barcodes = sc_merge_discovered_barcodes(
-                ch_discovered.collect(),
-                ch_tenx_whitelist.first()
+                ch_discovered.collect()
             )
             
             // Pass 2: Map reads using discovered/filtered barcode list
