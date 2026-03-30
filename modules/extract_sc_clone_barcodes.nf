@@ -147,7 +147,8 @@ process sc_filter_discovered_barcodes {
 }
 
 process sc_merge_discovered_barcodes {
-    // Merge barcode counts from all chunks and filter
+    // Merge barcode counts from all chunks and filter using knee-plot method
+    // Use when filter_discovered_barcodes = true (default)
     label 'small'
     
     input:
@@ -169,6 +170,29 @@ process sc_merge_discovered_barcodes {
     flexiplex-filter \
         --outfile filtered_barcodes.txt \
         combined_barcodes_counts.txt
+    """
+}
+
+process sc_merge_discovered_barcodes_nofilter {
+    // Merge barcode counts from all chunks WITHOUT knee-plot filtering
+    // Use when filter_discovered_barcodes = false (low expected clone counts)
+    label 'small'
+    
+    input:
+        path barcode_counts_files
+
+    output:
+        path "filtered_barcodes.txt"
+
+    """
+    #!/usr/bin/bash
+    
+    # Combine all barcode counts files, sum counts across chunks
+    # Keep all discovered barcodes (no knee-plot filtering)
+    cat ${barcode_counts_files} | \
+        awk '{counts[\$1] += \$2} END {for (bc in counts) print bc "\\t" counts[bc]}' | \
+        sort -k2 -nr | \
+        awk '{print \$1}' > filtered_barcodes.txt
     """
 }
 
