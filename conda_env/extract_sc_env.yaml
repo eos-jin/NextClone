@@ -9,4 +9,6 @@ dependencies:
   - pandas
   - numpy
   - Biopython
-  
+  - pip
+  - pip:
+    - flexiplex-filter
