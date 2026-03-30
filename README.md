@@ -32,20 +32,20 @@ Discovery mode uses a two-pass approach powered by [Flexiplex](https://github.co
 
 2. **Filtering:** Use `flexiplex-filter` to identify high-quality barcodes using the knee-plot inflection point method. Optionally, discovered barcodes can be intersected with a 10x barcode whitelist.
 
-3. **Pass 2 (Mapping):** Run Flexiplex with the filtered barcode list to perform final read assignments with standard edit distance parameters.
+3. **Pass 2 (Mapping):** Run Flexiplex with the discovered barcode list to perform final read assignments with standard edit distance parameters.
 
 ### Usage
 
 Enable discovery mode by setting the `discovery_mode` parameter:
 
 ```bash
-nextflow run main.nf --discovery_mode true
+nextflow run phipsonlab/Nextclone -r main --discovery_mode true
 ```
 
-Optionally, provide a 10x barcode whitelist to filter discovered barcodes:
+By default, discovered barcodes are filtered using a knee-plot inflection method (via `flexiplex-filter`) to remove low-confidence barcodes. If you expect a **low number of clones** in your data, disable filtering to retain all discovered barcodes:
 
 ```bash
-
+nextflow run phipsonlab/Nextclone -r main --discovery_mode true --filter_discovered_barcodes false
 ```
 
 ### Parameters
@@ -53,7 +53,7 @@ Optionally, provide a 10x barcode whitelist to filter discovered barcodes:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `discovery_mode` | `false` | Enable two-pass barcode discovery mode |
-
+| `filter_discovered_barcodes` | `true` | Filter discovered barcodes using knee-plot method. Set to `false` for datasets with a low expected number of clones. |
 
 When `discovery_mode = false` (default), the pipeline requires `clone_barcodes_reference` to be provided with a list of known barcodes.
 
