@@ -561,14 +561,25 @@ function onSelectorChange(sample) {{
     }});
     tbody.appendChild(tr);
   }});
-  // Auto-select first sample
+}})();
+
+// Auto-select first sample after page fully loads (ensures Chart.js is ready
+// and canvases have non-zero dimensions)
+window.addEventListener('load', function() {{
   if (DATA.sample_rows.length > 0) {{
     const first = DATA.sample_rows[0];
+    const sel = document.getElementById('sample-selector');
+    sel.value = first.sample;
+    const firstTr = document.querySelector('#overview-tbody tr');
+    // Select without scrolling on initial load
+    if (firstTr) firstTr.classList.add('selected');
     document.getElementById('sample-selector').value = first.sample;
-    const firstTr = tbody.querySelector('tr');
-    selectSample(first.sample, firstTr);
+    document.getElementById('selected-sample-name').textContent = first.sample;
+    document.getElementById('sample-heading').style.display = 'block';
+    document.getElementById('sample-detail').classList.add('visible');
+    renderSampleCharts(first.sample);
   }}
-}})();
+}});
 
 // ── Chart instances ──
 let chartAbundance = null, chartSizeDist = null, chartOverlap = null, chartClonality = null;
@@ -577,7 +588,7 @@ function destroyCharts() {{
   [chartAbundance, chartSizeDist, chartOverlap, chartClonality].forEach(c => {{ if (c) c.destroy(); }});
 }}
 
-function selectSample(sample, tr) {{
+function selectSample(sample, tr, scroll=true) {{
   // Highlight row
   document.querySelectorAll('#overview-tbody tr').forEach(r => r.classList.remove('selected'));
   if (tr) tr.classList.add('selected');
@@ -591,7 +602,7 @@ function selectSample(sample, tr) {{
 
   const detail = document.getElementById('sample-detail');
   detail.classList.add('visible');
-  detail.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+  if (scroll) detail.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
 
   destroyCharts();
   renderSampleCharts(sample);
