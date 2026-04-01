@@ -147,8 +147,13 @@ process sc_filter_discovered_barcodes {
 }
 
 process sc_merge_discovered_barcodes {
-    // Merge barcode counts from all chunks and filter using knee-plot method
-    // Use when filter_discovered_barcodes = true (default)
+    // Merge barcode counts from all chunks and optionally filter using knee-plot
+    // When params.filter_discovered_barcodes = false (default), all discovered
+    // barcodes are kept using flexiplex-filter --no-inflection.
+    // This is recommended for lineage tracing where singleton clones are biologically
+    // meaningful and should not be discarded.
+    // When params.filter_discovered_barcodes = true, the knee-plot inflection point
+    // method is used to remove low-count/noisy barcodes.
     label 'small'
     
     input:
@@ -166,33 +171,13 @@ process sc_merge_discovered_barcodes {
         awk '{counts[\$1] += \$2} END {for (bc in counts) print bc "\\t" counts[bc]}' | \
         sort -k2 -nr > combined_barcodes_counts.txt
     
-    # Run flexiplex-filter on combined counts using knee-plot method
+    # Run flexiplex-filter:
+    # - filter_discovered_barcodes = false: --no-inflection keeps ALL discovered barcodes
+    # - filter_discovered_barcodes = true:  knee-plot filtering removes low-count barcodes
     flexiplex-filter \
+        ${params.filter_discovered_barcodes ? '' : '--no-inflection'} \
         --outfile filtered_barcodes.txt \
         combined_barcodes_counts.txt
-    """
-}
-
-process sc_merge_discovered_barcodes_nofilter {
-    // Merge barcode counts from all chunks WITHOUT knee-plot filtering
-    // Use when filter_discovered_barcodes = false (low expected clone counts)
-    label 'small'
-    
-    input:
-        path barcode_counts_files
-
-    output:
-        path "filtered_barcodes.txt"
-
-    """
-    #!/usr/bin/bash
-    
-    # Combine all barcode counts files, sum counts across chunks
-    # Keep all discovered barcodes (no knee-plot filtering)
-    cat ${barcode_counts_files} | \
-        awk '{counts[\$1] += \$2} END {for (bc in counts) print bc "\\t" counts[bc]}' | \
-        sort -k2 -nr | \
-        awk '{print \$1}' > filtered_barcodes.txt
     """
 }
 
@@ -272,5 +257,28 @@ process sc_merge_barcodes {
 
     """
     sc_merge_clone_barcodes.py ${mapped_reads} ${outfile}
+    """
+}
+
+process generate_report {
+    // Generate interactive HTML dashboard from clone_barcodes.csv
+    // Uses reports/generate_report.py (pure Python stdlib, no pip installs)
+    label 'small'
+
+    publishDir params.publish_dir, mode: params.publish_dir_mode
+
+    input:
+        path clone_barcodes
+
+    output:
+        path "nextclone_report.html"
+
+    script:
+        title = params.report_title ?: "NextClone Run — ${new Date().format('yyyy-MM-dd')}"
+    """
+    python3 ${projectDir}/reports/generate_report.py \
+        ${clone_barcodes} \
+        --output nextclone_report.html \
+        --title "${title}"
     """
 }

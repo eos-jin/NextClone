@@ -139,8 +139,10 @@ process dnaseq_discover_barcodes {
 }
 
 process dnaseq_filter_discovered_barcodes {
-    // Filter discovered barcodes using flexiplex-filter
-    // Uses knee-plot inflection point method
+    // Optionally filter discovered barcodes using flexiplex-filter knee-plot method
+    // When params.filter_discovered_barcodes = false (default), all discovered
+    // barcodes are kept using --no-inflection.
+    // When params.filter_discovered_barcodes = true, knee-plot filtering is applied.
     label 'small'
     
     input:
@@ -152,8 +154,11 @@ process dnaseq_filter_discovered_barcodes {
     """
     #!/usr/bin/bash
     
-    # Run flexiplex-filter to select high-quality barcodes using knee-plot method
+    # Run flexiplex-filter:
+    # - filter_discovered_barcodes = false: --no-inflection keeps ALL discovered barcodes
+    # - filter_discovered_barcodes = true:  knee-plot filtering removes low-count barcodes
     flexiplex-filter \
+        ${params.filter_discovered_barcodes ? '' : '--no-inflection'} \
         --outfile filtered_barcodes.txt \
         ${barcode_counts}
     """
