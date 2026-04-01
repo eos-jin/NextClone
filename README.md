@@ -74,7 +74,7 @@ nextflow run main.nf --discovery_mode true --filter_discovered_barcodes true
 
 ### Standard report (auto-generated)
 
-NextClone automatically generates an interactive HTML dashboard at the end of every run, saved to your `publish_dir` as `nextclone_report.html`.
+NextClone automatically generates an interactive HTML dashboard at the end of every run, saved to your `publish_dir` as `nextclone_qc_report.html`.
 
 The report includes:
 - Sample overview table (reads, cells, unique clones, clonality)

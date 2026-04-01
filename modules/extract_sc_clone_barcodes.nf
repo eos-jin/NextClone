@@ -271,14 +271,14 @@ process generate_report {
         path clone_barcodes
 
     output:
-        path "nextclone_report.html"
+        path "nextclone_qc_report.html"
 
     script:
-        title = params.report_title ?: "NextClone Run — ${new Date().format('yyyy-MM-dd')}"
+        title = params.report_title ?: "NextClone QC Report — ${new Date().format('yyyy-MM-dd')}"
     """
     python3 ${projectDir}/reports/generate_report.py \
         ${clone_barcodes} \
-        --output nextclone_report.html \
+        --output nextclone_qc_report.html \
         --title "${title}"
     """
 }
