@@ -403,13 +403,19 @@ tbody td {{ padding: 10px 12px; border-bottom: 1px solid #F1F5F9; }}
     </thead>
     <tbody id="overview-tbody"></tbody>
   </table>
-  <p style="font-size:12px;color:#94A3B8;margin-top:10px;">Click a row to view per-sample detail below.</p>
+  <p style="font-size:12px;color:#94A3B8;margin-top:10px;">Click a row or use the dropdown below to view per-sample detail.</p>
 </div>
 
 <!-- ── SECTION 2: Per-sample detail ── -->
 <div class="card" id="sample-detail">
   <div class="section-title"><span class="section-num">2</span> Per-Sample Detail</div>
-  <div class="sample-heading">
+  <div style="margin-bottom:16px;">
+    <label for="sample-selector" style="font-size:13px;font-weight:600;color:#475569;margin-right:10px;">Sample:</label>
+    <select id="sample-selector" onchange="onSelectorChange(this.value)" style="font-family:inherit;font-size:13px;padding:6px 12px;border:1px solid #CBD5E1;border-radius:6px;background:#fff;color:#1E293B;cursor:pointer;">
+      <option value="">— select a sample —</option>
+    </select>
+  </div>
+  <div class="sample-heading" id="sample-heading" style="display:none;">
     Sample: <span class="sample-heading-tag" id="selected-sample-name">—</span>
   </div>
   <div class="legend" style="margin-bottom:16px;">
@@ -514,6 +520,23 @@ function deltaPill(d, large) {{
     metricHTML('Samples', s.samples_a, s.samples_b, s.samples_a === s.samples_b ? '=' : '≠');
 }})();
 
+// ── Populate sample selector dropdown ──
+(function() {{
+  const sel = document.getElementById('sample-selector');
+  DATA.sample_rows.forEach(row => {{
+    const opt = document.createElement('option');
+    opt.value = row.sample;
+    opt.textContent = row.sample;
+    sel.appendChild(opt);
+  }});
+}})();
+
+function onSelectorChange(sample) {{
+  if (!sample) return;
+  const tr = document.querySelector(`#overview-tbody tr[data-sample="${{sample}}"]`);
+  selectSample(sample, tr);
+}}
+
 // ── Overview table ──
 (function() {{
   const tbody = document.getElementById('overview-tbody');
@@ -532,9 +555,19 @@ function deltaPill(d, large) {{
       <td class="num">${{fmt(row.clones_b)}}</td>
       <td class="num">${{deltaPill(row.delta_clones, true)}}</td>
     `;
-    tr.addEventListener('click', () => selectSample(row.sample, tr));
+    tr.addEventListener('click', () => {{
+      document.getElementById('sample-selector').value = row.sample;
+      selectSample(row.sample, tr);
+    }});
     tbody.appendChild(tr);
   }});
+  // Auto-select first sample
+  if (DATA.sample_rows.length > 0) {{
+    const first = DATA.sample_rows[0];
+    document.getElementById('sample-selector').value = first.sample;
+    const firstTr = tbody.querySelector('tr');
+    selectSample(first.sample, firstTr);
+  }}
 }})();
 
 // ── Chart instances ──
@@ -547,9 +580,15 @@ function destroyCharts() {{
 function selectSample(sample, tr) {{
   // Highlight row
   document.querySelectorAll('#overview-tbody tr').forEach(r => r.classList.remove('selected'));
-  tr.classList.add('selected');
+  if (tr) tr.classList.add('selected');
 
+  // Sync dropdown
+  document.getElementById('sample-selector').value = sample;
+
+  // Show sample name heading
   document.getElementById('selected-sample-name').textContent = sample;
+  document.getElementById('sample-heading').style.display = 'block';
+
   const detail = document.getElementById('sample-detail');
   detail.classList.add('visible');
   detail.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
