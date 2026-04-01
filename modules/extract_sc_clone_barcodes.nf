@@ -147,7 +147,13 @@ process sc_filter_discovered_barcodes {
 }
 
 process sc_merge_discovered_barcodes {
-    // Merge barcode counts from all chunks and filter
+    // Merge barcode counts from all chunks and optionally filter using knee-plot
+    // When params.filter_discovered_barcodes = false (default), all discovered
+    // barcodes are kept using flexiplex-filter --no-inflection.
+    // This is recommended for lineage tracing where singleton clones are biologically
+    // meaningful and should not be discarded.
+    // When params.filter_discovered_barcodes = true, the knee-plot inflection point
+    // method is used to remove low-count/noisy barcodes.
     label 'small'
     
     input:
@@ -165,8 +171,11 @@ process sc_merge_discovered_barcodes {
         awk '{counts[\$1] += \$2} END {for (bc in counts) print bc "\\t" counts[bc]}' | \
         sort -k2 -nr > combined_barcodes_counts.txt
     
-    # Run flexiplex-filter on combined counts using knee-plot method
+    # Run flexiplex-filter:
+    # - filter_discovered_barcodes = false: --no-inflection keeps ALL discovered barcodes
+    # - filter_discovered_barcodes = true:  knee-plot filtering removes low-count barcodes
     flexiplex-filter \
+        ${params.filter_discovered_barcodes ? '' : '--no-inflection'} \
         --outfile filtered_barcodes.txt \
         combined_barcodes_counts.txt
     """

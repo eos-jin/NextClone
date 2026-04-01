@@ -53,9 +53,19 @@ Optionally, provide a 10x barcode whitelist to filter discovered barcodes:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `discovery_mode` | `false` | Enable two-pass barcode discovery mode |
-
+| `filter_discovered_barcodes` | `false` | Apply knee-plot filtering to discovered barcodes (see below) |
 
 When `discovery_mode = false` (default), the pipeline requires `clone_barcodes_reference` to be provided with a list of known barcodes.
+
+### Barcode filtering in discovery mode
+
+By default (`filter_discovered_barcodes = false`), **all barcodes discovered in Pass 1 are passed to Pass 2**, including singletons. This is the recommended setting for lineage tracing experiments where rare clones are biologically meaningful and should not be discarded.
+
+Setting `filter_discovered_barcodes = true` enables knee-plot inflection filtering via `flexiplex-filter`, which removes low-count barcodes. This can be useful for noisy datasets but **will discard singleton and low-count clones** that may be genuine:
+
+```bash
+nextflow run main.nf --discovery_mode true --filter_discovered_barcodes true
+```
 
 <!-- ## Citation -->
 
