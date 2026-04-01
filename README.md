@@ -16,52 +16,65 @@ It is heavily optimised for usage in high-performance computing (HPC) platforms.
 
 For instructions on how to use *NextClone*, please visit the [user guide](https://phipsonlab.github.io/NextClone/).
 
-## Discovery Mode
+## Modes
 
-NextClone now supports **discovery mode**, which enables barcode identification without requiring a pre-defined whitelist of known barcodes. This is particularly useful when:
+### Whitelist mode (default)
+
+Provide a list of known barcode sequences. Flexiplex maps all reads against the whitelist.
+
+```bash
+nextflow run main.nf --clone_barcodes_reference /path/to/barcodes.txt
+```
+
+### Discovery mode
+
+NextClone supports **discovery mode**, which identifies barcodes directly from the data without a pre-defined whitelist. This is useful when:
 
 - The exact barcode sequences are unknown
-- You want to discover novel barcodes from your data
-- You're working with a new clonal barcoding system
-
-### How Discovery Mode Works
+- You are working with a new or custom clonal barcoding system
+- You want to validate or supplement a known barcode list
 
 Discovery mode uses a two-pass approach powered by [Flexiplex](https://github.com/DavidsonGroup/flexiplex):
 
-1. **Pass 1 (Discovery):** Run Flexiplex without a known barcode list (`-k` flag) to identify all potential barcodes in the data. Uses strict flanking sequence matching (`-f 0`) to reduce barcode errors.
-
-2. **Filtering:** Use `flexiplex-filter` to identify high-quality barcodes using the knee-plot inflection point method. Optionally, discovered barcodes can be intersected with a 10x barcode whitelist.
-
-3. **Pass 2 (Mapping):** Run Flexiplex with the filtered barcode list to perform final read assignments with standard edit distance parameters.
-
-### Usage
-
-Enable discovery mode by setting the `discovery_mode` parameter:
+1. **Pass 1 (Discovery):** Run Flexiplex without a barcode list (`-k` flag) using strict flanking sequence matching (`-f 0`) to identify candidate barcodes.
+2. **Pass 2 (Mapping):** Run Flexiplex with the discovered barcode list using standard edit distance parameters.
 
 ```bash
 nextflow run main.nf --discovery_mode true
 ```
 
-Optionally, provide a 10x barcode whitelist to filter discovered barcodes:
+#### Barcode filtering in discovery mode
+
+By default (`filter_discovered_barcodes = false`), **all barcodes discovered in Pass 1 are passed to Pass 2**, including singletons. This is recommended for lineage tracing experiments where rare clones are biologically meaningful.
+
+Setting `filter_discovered_barcodes = true` applies `flexiplex-filter` knee-plot inflection filtering, which removes low-count barcodes. Use this only for noisy datasets — **it will discard singleton and low-count clones**:
 
 ```bash
-
+nextflow run main.nf --discovery_mode true --filter_discovered_barcodes true
 ```
 
-### Parameters
+## Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
+| `mode` | `"scRNAseq"` | Workflow mode: `"scRNAseq"` or `"DNAseq"` |
+| `clone_barcodes_reference` | — | Path to known barcode whitelist (required when `discovery_mode = false`) |
 | `discovery_mode` | `false` | Enable two-pass barcode discovery mode |
-| `filter_discovered_barcodes` | `false` | Apply knee-plot filtering to discovered barcodes (see below) |
-
-When `discovery_mode = false` (default), the pipeline requires `clone_barcodes_reference` to be provided with a list of known barcodes.
+| `filter_discovered_barcodes` | `false` | Apply knee-plot filtering to discovered barcodes (see above) |
+| `barcode_edit_distance` | `2` | Maximum edit distance for barcode matching |
+| `adapter_edit_distance` | `6` | Maximum edit distance for flanking adapter matching |
+| `adapter_5prime` | — | 5′ flanking adapter sequence |
+| `adapter_3prime` | — | 3′ flanking adapter sequence |
+| `barcode_length` | `20` | Expected barcode length (bp) |
+| `n_chunks` | `2` | Number of read chunks for parallel processing |
+| `publish_dir` | `output/` | Output directory |
+| `report_title` | — | Custom title for the HTML report (defaults to date-stamped title) |
 
 ## HTML Reports
 
 ### Standard report (auto-generated)
 
-NextClone automatically generates an interactive HTML dashboard at the end of every run. The report is saved to your `publish_dir` as `nextclone_report.html`.
+NextClone automatically generates an interactive HTML dashboard at the end of every run, saved to your `publish_dir` as `nextclone_report.html`.
 
 The report includes:
 - Sample overview table (reads, cells, unique clones, clonality)
@@ -71,14 +84,14 @@ The report includes:
 - Edit distance QC (FlankEditDist & BarcodeEditDist)
 - Cross-sample clonality comparison
 
-To customise the report title:
+To set a custom title:
 ```bash
 nextflow run main.nf --report_title "My Experiment — ZR751 2026"
 ```
 
-### Comparison report (manual, two runs)
+### Comparison report (manual)
 
-To compare two runs (e.g. reference mode vs discovery mode), use the comparison script after both runs are complete:
+To compare two runs side by side (e.g. reference mode vs discovery mode), use the comparison script after both runs are complete:
 
 ```bash
 python3 reports/generate_comparison_report.py \
@@ -92,25 +105,13 @@ python3 reports/generate_comparison_report.py \
 
 The comparison report shows:
 - Δ reads, cells, and clones between the two runs
-- Per-sample ranked abundance overlay (both modes on one log-scale plot)
+- Per-sample ranked abundance overlay (both modes, log-scale)
 - Clone size distribution side by side
 - Top clone overlap (concordance between modes)
 - Clonality metrics comparison (top1%, top3%, top10%)
 - Cell recovery validation across samples
 
-> **No pip installs required.** Both scripts use Python stdlib only, with Chart.js loaded via CDN for charts.
-
----
-
-### Barcode filtering in discovery mode
-
-By default (`filter_discovered_barcodes = false`), **all barcodes discovered in Pass 1 are passed to Pass 2**, including singletons. This is the recommended setting for lineage tracing experiments where rare clones are biologically meaningful and should not be discarded.
-
-Setting `filter_discovered_barcodes = true` enables knee-plot inflection filtering via `flexiplex-filter`, which removes low-count barcodes. This can be useful for noisy datasets but **will discard singleton and low-count clones** that may be genuine:
-
-```bash
-nextflow run main.nf --discovery_mode true --filter_discovered_barcodes true
-```
+> **No pip installs required.** Both report scripts use Python stdlib only, with Chart.js loaded via CDN.
 
 <!-- ## Citation -->
 
