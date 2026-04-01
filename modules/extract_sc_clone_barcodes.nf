@@ -259,3 +259,26 @@ process sc_merge_barcodes {
     sc_merge_clone_barcodes.py ${mapped_reads} ${outfile}
     """
 }
+
+process generate_report {
+    // Generate interactive HTML dashboard from clone_barcodes.csv
+    // Uses reports/generate_report.py (pure Python stdlib, no pip installs)
+    label 'small'
+
+    publishDir params.publish_dir, mode: params.publish_dir_mode
+
+    input:
+        path clone_barcodes
+
+    output:
+        path "nextclone_report.html"
+
+    script:
+        title = params.report_title ?: "NextClone Run — ${new Date().format('yyyy-MM-dd')}"
+    """
+    python3 ${projectDir}/reports/generate_report.py \
+        ${clone_barcodes} \
+        --output nextclone_report.html \
+        --title "${title}"
+    """
+}

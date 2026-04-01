@@ -57,6 +57,51 @@ Optionally, provide a 10x barcode whitelist to filter discovered barcodes:
 
 When `discovery_mode = false` (default), the pipeline requires `clone_barcodes_reference` to be provided with a list of known barcodes.
 
+## HTML Reports
+
+### Standard report (auto-generated)
+
+NextClone automatically generates an interactive HTML dashboard at the end of every run. The report is saved to your `publish_dir` as `nextclone_report.html`.
+
+The report includes:
+- Sample overview table (reads, cells, unique clones, clonality)
+- Ranked clone abundance plot (log scale)
+- Clone size distribution (singleton → dominant)
+- Top 20 clones per sample
+- Edit distance QC (FlankEditDist & BarcodeEditDist)
+- Cross-sample clonality comparison
+
+To customise the report title:
+```bash
+nextflow run main.nf --report_title "My Experiment — ZR751 2026"
+```
+
+### Comparison report (manual, two runs)
+
+To compare two runs (e.g. reference mode vs discovery mode), use the comparison script after both runs are complete:
+
+```bash
+python3 reports/generate_comparison_report.py \
+    /path/to/run_a/clone_barcodes.csv \
+    /path/to/run_b/clone_barcodes.csv \
+    --label-a "Reference" \
+    --label-b "Discovery" \
+    --output comparison_report.html \
+    --title "Reference vs Discovery — My Experiment"
+```
+
+The comparison report shows:
+- Δ reads, cells, and clones between the two runs
+- Per-sample ranked abundance overlay (both modes on one log-scale plot)
+- Clone size distribution side by side
+- Top clone overlap (concordance between modes)
+- Clonality metrics comparison (top1%, top3%, top10%)
+- Cell recovery validation across samples
+
+> **No pip installs required.** Both scripts use Python stdlib only, with Chart.js loaded via CDN for charts.
+
+---
+
 ### Barcode filtering in discovery mode
 
 By default (`filter_discovered_barcodes = false`), **all barcodes discovered in Pass 1 are passed to Pass 2**, including singletons. This is the recommended setting for lineage tracing experiments where rare clones are biologically meaningful and should not be discarded.
