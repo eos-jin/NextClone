@@ -415,9 +415,7 @@ tbody td {{ padding: 10px 12px; border-bottom: 1px solid #F1F5F9; }}
       <option value="">— select a sample —</option>
     </select>
   </div>
-  <div class="sample-heading" id="sample-heading" style="display:none;">
-    Sample: <span class="sample-heading-tag" id="selected-sample-name">—</span>
-  </div>
+  <span id="selected-sample-name" style="display:none;"></span>
   <div class="legend" style="margin-bottom:16px;">
     <div class="legend-item"><div class="legend-dot" style="background:#2563EB"></div> {label_a}</div>
     <div class="legend-item"><div class="legend-dot" style="background:#16A34A"></div> {label_b}</div>
@@ -575,7 +573,7 @@ window.addEventListener('load', function() {{
     if (firstTr) firstTr.classList.add('selected');
     document.getElementById('sample-selector').value = first.sample;
     document.getElementById('selected-sample-name').textContent = first.sample;
-    document.getElementById('sample-heading').style.display = 'block';
+    
     document.getElementById('sample-detail').classList.add('visible');
     renderSampleCharts(first.sample);
   }}
@@ -598,7 +596,7 @@ function selectSample(sample, tr, scroll=true) {{
 
   // Show sample name heading
   document.getElementById('selected-sample-name').textContent = sample;
-  document.getElementById('sample-heading').style.display = 'block';
+  
 
   const detail = document.getElementById('sample-detail');
   detail.classList.add('visible');
