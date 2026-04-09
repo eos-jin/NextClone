@@ -36,7 +36,6 @@ include {
     sc_map_unmapped_reads;
     sc_discover_barcodes;
     sc_merge_discovered_barcodes;
-    sc_merge_discovered_barcodes_nofilter;
     sc_map_with_discovered_barcodes;
     sc_merge_barcodes;
     generate_report
@@ -138,18 +137,12 @@ workflow {
             ch_discovered = sc_discover_barcodes(ch_unmapped_fastas[0].flatten())
             
             // Combine and optionally filter discovered barcodes
-            if (params.filter_discovered_barcodes) {
-                // Filter using knee-plot inflection method (default)
-                ch_filtered_barcodes = sc_merge_discovered_barcodes(
-                    ch_discovered.collect()
-                )
-            } else {
-                // No filtering — keep all discovered barcodes
-                // Recommended when expecting a low number of clones
-                ch_filtered_barcodes = sc_merge_discovered_barcodes_nofilter(
-                    ch_discovered.collect()
-                )
-            }
+            // sc_merge_discovered_barcodes handles both cases via params.filter_discovered_barcodes:
+            // - false (default): --no-inflection keeps ALL discovered barcodes
+            // - true: knee-plot filtering removes low-count barcodes
+            ch_filtered_barcodes = sc_merge_discovered_barcodes(
+                ch_discovered.collect()
+            )
             
             // Pass 2: Map reads using discovered barcode list
             ch_mapped_fastas = sc_map_with_discovered_barcodes(
