@@ -28,7 +28,10 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 
 def load_data(csv_path):
-    """Parse the CSV and return a dict of per-sample data structures."""
+    """
+    Parse the CSV and return a dict of per-sample data structures.
+    Also extracts run information from header lines starting with #.
+    """
     samples = defaultdict(lambda: {
         "reads": 0,
         "cells": set(),
@@ -36,8 +39,37 @@ def load_data(csv_path):
         "flank_edit": defaultdict(int),
         "barcode_edit": defaultdict(int),
     })
+    
+    run_info = {
+        "mode": None,
+        "command": None,
+        "parameters": {},
+    }
 
     with open(csv_path, newline="", encoding="utf-8") as f:
+        # First pass: read header comments for run information
+        header_lines = []
+        for line in f:
+            if line.startswith('#'):
+                header_lines.append(line.strip())
+            else:
+                # Found first data line, reset file pointer
+                f.seek(0)
+                break
+        
+        # Parse header comments
+        for line in header_lines:
+            line = line.lstrip('#').strip()
+            if line.startswith('mode:'):
+                run_info["mode"] = line.split(':', 1)[1].strip()
+            elif line.startswith('command:'):
+                run_info["command"] = line.split(':', 1)[1].strip()
+            elif ':' in line:
+                key, val = line.split(':', 1)
+                run_info["parameters"][key.strip()] = val.strip()
+        
+        # Second pass: read CSV data
+        f.seek(0)
         reader = csv.DictReader(f)
         for row in reader:
             sample = row["SourceBAMFile"]
@@ -61,7 +93,7 @@ def load_data(csv_path):
             if bed >= 0:
                 s["barcode_edit"][min(bed, 5)] += 1
 
-    return samples
+    return samples, run_info
 
 
 def compute_gini(values):
@@ -260,17 +292,11 @@ def global_stats(stats):
     total_samples = len(stats)
     total_clones = sum(s["clones"] for s in stats.values())
     
-    # Average heterogeneity metrics
-    avg_gini = round(sum(s["gini"] for s in stats.values()) / len(stats), 4) if stats else 0
-    avg_shannon = round(sum(s["shannon"] for s in stats.values()) / len(stats), 4) if stats else 0
-    
     return {
         "total_reads": total_reads,
         "total_cells": total_cells,
         "total_samples": total_samples,
         "total_clones": total_clones,
-        "avg_gini": avg_gini,
-        "avg_shannon": avg_shannon,
     }
 
 
@@ -370,13 +396,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .overlap-table th:first-child, .overlap-table td:first-child { text-align: left; background: #F8FAFC; font-weight: 600; color: #1E293B; }
   .overlap-table .in-all-col { background: #DBEAFE; font-weight: 600; color: #1E40AF; }
 
-  /* Heterogeneity section */
-  .het-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }
-  .het-card { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-  .het-card-title { font-size: 12px; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-  .het-card-value { font-size: 24px; font-weight: 700; color: #1E293B; }
-  .het-card-desc { font-size: 11px; color: #94A3B8; margin-top: 4px; }
-
   /* Footer */
   .footer { background: #1E293B; color: #94A3B8; text-align: center; padding: 20px; font-size: 12px; margin-top: 20px; }
   .footer a { color: #60A5FA; }
@@ -456,15 +475,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   <div class="divider"></div>
 
-  <!-- Section 3: Heterogeneity Metrics -->
-  <div class="section">
-    <div class="section-title">Heterogeneity Metrics</div>
-    <div class="het-grid" id="het-grid"></div>
-  </div>
-
-  <div class="divider"></div>
-
-  <!-- Section 4: Sample Detail -->
+  <!-- Section 3: Sample Detail -->
   <div class="section">
     <div class="detail-header">
       <div class="section-title" style="margin-bottom:0">Sample Detail</div>
@@ -652,36 +663,6 @@ function renderOverlapTable() {
 }
 
 // ============================================================
-// Heterogeneity metrics
-// ============================================================
-function renderHeterogeneity() {
-  const grid = document.getElementById('het-grid');
-  
-  const metrics = [
-    {
-      title: 'Average Gini Coefficient',
-      value: fmt4(GLOBAL.avg_gini),
-      desc: 'Measures inequality in clone sizes (0=equal, 1=unequal)',
-      badge: giniBadge(GLOBAL.avg_gini)
-    },
-    {
-      title: 'Average Shannon Index',
-      value: fmt4(GLOBAL.avg_shannon),
-      desc: 'Measures diversity (higher = more diverse clone distribution)',
-      badge: ''
-    }
-  ];
-  
-  grid.innerHTML = metrics.map(m => `
-    <div class="het-card">
-      <div class="het-card-title">${m.title} ${m.badge}</div>
-      <div class="het-card-value">${m.value}</div>
-      <div class="het-card-desc">${m.desc}</div>
-    </div>
-  `).join('');
-}
-
-// ============================================================
 // Chart instances
 // ============================================================
 let charts = {};
@@ -827,6 +808,7 @@ function renderSizeDensity(name) {
         },
         x: {
           title: { display: true, text: 'Clone Size (cells, log scale)', font: { size: 11 } },
+          min: 0,
           ticks: { maxTicksLimit: 10 }
         }
       },
@@ -1038,7 +1020,6 @@ renderSummary();
 renderTable(SAMPLE_NAMES);
 populateDropdown();
 renderOverlapTable();
-renderHeterogeneity();
 renderCrossCharts();
 
 if (SAMPLE_NAMES.length > 0) selectSample(SAMPLE_NAMES[0]);
@@ -1052,25 +1033,34 @@ if (SAMPLE_NAMES.length > 0) selectSample(SAMPLE_NAMES[0]);
 # Report generation
 # ---------------------------------------------------------------------------
 
-def detect_run_mode(stats):
-    """Heuristic: default to Discovery mode."""
-    return "Discovery Mode"
+def detect_run_mode(run_info):
+    """Determine run mode from run_info or return 'Unknown'."""
+    if run_info.get("mode"):
+        mode = run_info["mode"]
+        # Capitalize appropriately
+        if mode.lower() == "discovery":
+            return "Discovery Mode"
+        elif mode.lower() == "whitelist" or mode.lower() == "reference":
+            return "Whitelist Mode"
+        else:
+            return mode
+    return "Run Mode Unknown"
 
 
 def generate_report(csv_path, output_path, title):
-    print(f"[1/5] Loading data from {csv_path}...")
-    raw = load_data(csv_path)
+    print(f"[1/6] Loading data from {csv_path}...")
+    raw, run_info = load_data(csv_path)
 
-    print(f"[2/5] Computing stats for {len(raw)} samples...")
+    print(f"[2/6] Computing stats for {len(raw)} samples...")
     stats = compute_stats(raw)
     glob = global_stats(stats)
     overlap = compute_global_overlap(raw)
 
-    run_mode = detect_run_mode(stats)
+    run_mode = detect_run_mode(run_info)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     input_filename = os.path.basename(csv_path)
 
-    print(f"[3/5] Building HTML report...")
+    print(f"[3/6] Building HTML report...")
     data_json = json.dumps(stats, separators=(",", ":"))
     global_json = json.dumps(glob, separators=(",", ":"))
     overlap_json = json.dumps(overlap, separators=(",", ":"))
@@ -1084,19 +1074,22 @@ def generate_report(csv_path, output_path, title):
     html = html.replace("{{GLOBAL_JSON}}", global_json)
     html = html.replace("{{OVERLAP_JSON}}", overlap_json)
 
-    print(f"[4/5] Writing to {output_path}...")
+    print(f"[4/6] Writing to {output_path}...")
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)
 
+    print(f"[5/6] Complete!")
+    print(f"[6/6] Summary:")
     size_kb = os.path.getsize(output_path) / 1024
-    print(f"[5/5] Complete!")
     print(f"\n✅ Report generated: {output_path} ({size_kb:.1f} KB)")
     print(f"   Samples: {glob['total_samples']}")
     print(f"   Reads:   {glob['total_reads']:,}")
     print(f"   Cells:   {glob['total_cells']:,}")
     print(f"   Clones:  {glob['total_clones']:,}")
-    print(f"   Avg Gini: {glob['avg_gini']:.4f}")
-    print(f"   Avg Shannon: {glob['avg_shannon']:.4f}")
+    if run_info.get("mode"):
+        print(f"   Mode:    {run_mode}")
+    if run_info.get("command"):
+        print(f"   Command: {run_info['command'][:80]}...")
 
 
 # ---------------------------------------------------------------------------
