@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """
-NextClone Report Generator
+NextClone Report Generator v2
 Reads clone_barcodes.csv and generates a self-contained HTML dashboard.
+
+New features (v2):
+- Clone overlap table (shared clones across samples at different thresholds)
+- Heterogeneity metrics (Gini coefficient, Shannon index)
+- Clone size density plot (KDE curve)
+- Reversed top 20 clones (largest at top)
 
 Usage:
     python3 generate_report.py <input_csv> [--output report.html] [--title "My Run"]
@@ -10,6 +16,7 @@ Usage:
 import argparse
 import csv
 import json
+import math
 import os
 import sys
 from collections import defaultdict
@@ -57,6 +64,95 @@ def load_data(csv_path):
     return samples
 
 
+def compute_gini(values):
+    """
+    Calculate Gini coefficient for clone size distribution.
+    0 = perfect equality (all clones same size)
+    1 = perfect inequality (one clone has all cells)
+    
+    Formula: G = sum(|xi - xj|) / (2 * n * sum(x))
+    """
+    if not values or sum(values) == 0:
+        return 0.0
+    
+    n = len(values)
+    if n == 1:
+        return 0.0
+    
+    # Sort values
+    sorted_vals = sorted(values)
+    
+    # Calculate Gini using the efficient formula
+    # G = (2 * sum(i * x_i) - (n + 1) * sum(x_i)) / (n * sum(x_i))
+    total = sum(sorted_vals)
+    weighted_sum = sum((i + 1) * val for i, val in enumerate(sorted_vals))
+    
+    gini = (2 * weighted_sum - (n + 1) * total) / (n * total)
+    return round(gini, 4)
+
+
+def compute_shannon(values):
+    """
+    Calculate Shannon diversity index for clone distribution.
+    Higher = more diverse (many clones with similar sizes)
+    Lower = less diverse (few dominant clones)
+    
+    Formula: H = -sum(pi * ln(pi))
+    """
+    if not values or sum(values) == 0:
+        return 0.0
+    
+    total = sum(values)
+    h = 0.0
+    
+    for val in values:
+        if val > 0:
+            pi = val / total
+            h -= pi * math.log(pi)
+    
+    return round(h, 4)
+
+
+def compute_clone_overlap(samples):
+    """
+    Compute clone overlap across samples at different cell thresholds.
+    Returns a dict with thresholds as keys and per-sample counts + "in_all" count.
+    """
+    thresholds = [5, 10, 15, 20, 50, 100]
+    sample_names = sorted(samples.keys())
+    
+    # For each sample, get clones with >= threshold cells
+    sample_clone_sets = {}
+    for sample, raw in samples.items():
+        clone_sizes = {clone: len(cells) for clone, cells in raw["clone_cells"].items()}
+        sample_clone_sets[sample] = clone_sizes
+    
+    # Compute overlap for each threshold
+    overlap_data = {}
+    for thresh in thresholds:
+        overlap_data[thresh] = {
+            "per_sample": {},
+            "in_all": 0
+        }
+        
+        # Get clones meeting threshold for each sample
+        clones_above_thresh = {}
+        for sample in sample_names:
+            clones_above = [
+                clone for clone, size in sample_clone_sets[sample].items()
+                if size >= thresh
+            ]
+            clones_above_thresh[sample] = set(clones_above)
+            overlap_data[thresh]["per_sample"][sample] = len(clones_above)
+        
+        # Clones present in ALL samples above threshold
+        if len(sample_names) > 0:
+            common_clones = set.intersection(*clones_above_thresh.values())
+            overlap_data[thresh]["in_all"] = len(common_clones)
+    
+    return overlap_data
+
+
 def compute_stats(samples):
     """Turn raw per-sample data into serialisable stats dicts."""
     result = {}
@@ -67,9 +163,10 @@ def compute_stats(samples):
         # Clone sizes (by unique cells per clone)
         clone_sizes = {clone: len(cells) for clone, cells in raw["clone_cells"].items()}
         n_clones = len(clone_sizes)
+        clone_size_values = list(clone_sizes.values())
 
         # Ranked sizes (descending)
-        ranked = sorted(clone_sizes.values(), reverse=True)
+        ranked = sorted(clone_size_values, reverse=True)
 
         # Clone size distribution buckets
         buckets = {"Singleton": 0, "Small (2-5)": 0, "Medium (6-20)": 0,
@@ -86,7 +183,27 @@ def compute_stats(samples):
             else:
                 buckets["Dominant (>100)"] += 1
 
-        # Top 20 clones
+        # Clone size density (for KDE plot)
+        # Create binned density for log-transformed clone sizes
+        density_data = []
+        if clone_size_values:
+            # Use log scale for better visualization
+            log_sizes = [math.log10(sz) for sz in clone_size_values if sz > 0]
+            if log_sizes:
+                min_log = min(log_sizes)
+                max_log = max(log_sizes)
+                n_bins = min(30, len(log_sizes))
+                if n_bins > 1:
+                    bin_width = (max_log - min_log) / n_bins
+                    for i in range(n_bins):
+                        bin_start = min_log + i * bin_width
+                        bin_count = sum(1 for ls in log_sizes if bin_start <= ls < bin_start + bin_width)
+                        density_data.append({
+                            "x": round(10 ** bin_start, 2),
+                            "y": bin_count
+                        })
+
+        # Top 20 clones (already sorted descending - largest first)
         top_clones_raw = sorted(clone_sizes.items(), key=lambda x: x[1], reverse=True)[:20]
         top_clones = [
             {
@@ -108,34 +225,52 @@ def compute_stats(samples):
         def ed_dist(d):
             return [d.get(i, 0) for i in range(6)]
 
+        # Heterogeneity metrics
+        gini = compute_gini(clone_size_values)
+        shannon = compute_shannon(clone_size_values)
+
         result[sample] = {
             "reads": n_reads,
             "cells": n_cells,
             "clones": n_clones,
             "ranked_sizes": ranked,
             "clone_size_buckets": buckets,
+            "clone_size_density": density_data,
             "top_clones": top_clones,
             "top1_pct": top_n_pct(1),
             "top3_pct": top_n_pct(3),
             "top10_pct": top_n_pct(10),
             "flank_edit_dist": ed_dist(raw["flank_edit"]),
             "barcode_edit_dist": ed_dist(raw["barcode_edit"]),
+            "gini": gini,
+            "shannon": shannon,
         }
 
     return result
+
+
+def compute_global_overlap(samples):
+    """Compute clone overlap data for all samples."""
+    return compute_clone_overlap(samples)
 
 
 def global_stats(stats):
     total_reads = sum(s["reads"] for s in stats.values())
     total_cells = sum(s["cells"] for s in stats.values())
     total_samples = len(stats)
-    # Unique clones across all samples (count clones that appear in each sample independently)
     total_clones = sum(s["clones"] for s in stats.values())
+    
+    # Average heterogeneity metrics
+    avg_gini = round(sum(s["gini"] for s in stats.values()) / len(stats), 4) if stats else 0
+    avg_shannon = round(sum(s["shannon"] for s in stats.values()) / len(stats), 4) if stats else 0
+    
     return {
         "total_reads": total_reads,
         "total_cells": total_cells,
         "total_samples": total_samples,
         "total_clones": total_clones,
+        "avg_gini": avg_gini,
+        "avg_shannon": avg_shannon,
     }
 
 
@@ -205,6 +340,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .pill-amber { background: #FEF3C7; color: #D97706; }
   .pill-red { background: #FEE2E2; color: #DC2626; }
 
+  /* Heterogeneity badge */
+  .het-badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; margin-left: 6px; }
+  .het-low { background: #DCFCE7; color: #16A34A; }
+  .het-med { background: #FEF3C7; color: #D97706; }
+  .het-high { background: #FEE2E2; color: #DC2626; }
+
   /* Sample detail */
   .detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
   .detail-select { padding: 8px 12px; border: 1px solid #CBD5E1; border-radius: 8px; font-family: inherit; font-size: 14px; background: white; cursor: pointer; }
@@ -218,6 +359,23 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   /* Cross-sample */
   .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   @media (max-width: 900px) { .comparison-grid { grid-template-columns: 1fr; } }
+  
+  /* Overlap table */
+  .overlap-table-wrapper { overflow-x: auto; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-top: 16px; }
+  .overlap-table { width: 100%; border-collapse: collapse; }
+  .overlap-table th { background: #F1F5F9; font-size: 11px; padding: 10px 12px; text-align: right; border: 1px solid #E2E8F0; }
+  .overlap-table th:first-child { text-align: left; background: #F8FAFC; }
+  .overlap-table td { padding: 10px 12px; text-align: right; border: 1px solid #E2E8F0; font-variant-numeric: tabular-nums; }
+  .overlap-table tr:hover { background: #F8FAFC; }
+  .overlap-table th:first-child, .overlap-table td:first-child { text-align: left; background: #F8FAFC; font-weight: 600; color: #1E293B; }
+  .overlap-table .in-all-col { background: #DBEAFE; font-weight: 600; color: #1E40AF; }
+
+  /* Heterogeneity section */
+  .het-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 16px; }
+  .het-card { background: white; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .het-card-title { font-size: 12px; font-weight: 600; color: #64748B; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .het-card-value { font-size: 24px; font-weight: 700; color: #1E293B; }
+  .het-card-desc { font-size: 11px; color: #94A3B8; margin-top: 4px; }
 
   /* Footer */
   .footer { background: #1E293B; color: #94A3B8; text-align: center; padding: 20px; font-size: 12px; margin-top: 20px; }
@@ -266,8 +424,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             <th data-col="cells" data-type="num" class="num-cell">Cells<span class="sort-icon"></span></th>
             <th data-col="clones" data-type="num" class="num-cell">Clones<span class="sort-icon"></span></th>
             <th data-col="top1_pct" data-type="num" class="num-cell">Top Clone %<span class="sort-icon"></span></th>
-            <th data-col="top3_pct" data-type="num" class="num-cell">Top 3 Clones %<span class="sort-icon"></span></th>
-            <th data-col="top1_pct" data-type="num">Clonality<span class="sort-icon"></span></th>
+            <th data-col="gini" data-type="num" class="num-cell">Gini<span class="sort-icon"></span></th>
+            <th data-col="shannon" data-type="num" class="num-cell">Shannon<span class="sort-icon"></span></th>
           </tr>
         </thead>
         <tbody id="sample-tbody"></tbody>
@@ -277,7 +435,36 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   <div class="divider"></div>
 
-  <!-- Section 2: Sample Detail -->
+  <!-- Section 2: Clone Overlap Across Samples -->
+  <div class="section">
+    <div class="section-title">Clone Overlap Across Samples</div>
+    <div class="card">
+      <p style="color:#64748B;font-size:13px;margin-bottom:12px;">
+        Number of clones detected in each sample (and in ALL samples) at different cell count thresholds.
+        Higher overlap indicates consistent clone detection across samples.
+      </p>
+      <div class="overlap-table-wrapper">
+        <table class="overlap-table" id="overlap-table">
+          <thead>
+            <tr id="overlap-header"></tr>
+          </thead>
+          <tbody id="overlap-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Section 3: Heterogeneity Metrics -->
+  <div class="section">
+    <div class="section-title">Heterogeneity Metrics</div>
+    <div class="het-grid" id="het-grid"></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Section 4: Sample Detail -->
   <div class="section">
     <div class="detail-header">
       <div class="section-title" style="margin-bottom:0">Sample Detail</div>
@@ -293,8 +480,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           <div class="chart-container" style="height:300px"><canvas id="chartAbundance"></canvas></div>
         </div>
         <div class="chart-card">
-          <div class="chart-title">B) Clone Size Distribution</div>
-          <div class="chart-container" style="height:300px"><canvas id="chartSizeDist"></canvas></div>
+          <div class="chart-title">B) Clone Size Density</div>
+          <div class="chart-container" style="height:300px"><canvas id="chartSizeDensity"></canvas></div>
         </div>
         <div class="chart-card">
           <div class="chart-title">C) Top 20 Clones</div>
@@ -310,7 +497,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   <div class="divider"></div>
 
-  <!-- Section 3: Cross-Sample Comparison -->
+  <!-- Section 5: Cross-Sample Comparison -->
   <div class="section">
     <div class="section-title">Cross-Sample Comparison</div>
     <div class="comparison-grid">
@@ -338,6 +525,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 // ============================================================
 const DATA = {{DATA_JSON}};
 const GLOBAL = {{GLOBAL_JSON}};
+const OVERLAP = {{OVERLAP_JSON}};
 const SAMPLE_NAMES = Object.keys(DATA);
 
 // ============================================================
@@ -348,6 +536,7 @@ function fmt(n) {
   return Number(n).toLocaleString();
 }
 function pct(v) { return v.toFixed(1) + '%'; }
+function fmt4(v) { return v.toFixed(4); }
 
 // ============================================================
 // Summary bar
@@ -370,10 +559,10 @@ function renderSummary() {
 // ============================================================
 let sortCol = null, sortDir = 1;
 
-function clonalityPill(v) {
-  if (v < 10) return `<span class="pill pill-green">${pct(v)}</span>`;
-  if (v < 30) return `<span class="pill pill-amber">${pct(v)}</span>`;
-  return `<span class="pill pill-red">${pct(v)}</span>`;
+function giniBadge(v) {
+  if (v < 0.3) return `<span class="het-badge het-low">Low</span>`;
+  if (v < 0.6) return `<span class="het-badge het-med">Med</span>`;
+  return `<span class="het-badge het-high">High</span>`;
 }
 
 function renderTable(names) {
@@ -386,8 +575,8 @@ function renderTable(names) {
       <td class="num-cell">${fmt(s.cells)}</td>
       <td class="num-cell">${fmt(s.clones)}</td>
       <td class="num-cell">${pct(s.top1_pct)}</td>
-      <td class="num-cell">${pct(s.top3_pct)}</td>
-      <td>${clonalityPill(s.top1_pct)}</td>
+      <td class="num-cell">${fmt4(s.gini)} ${giniBadge(s.gini)}</td>
+      <td class="num-cell">${fmt4(s.shannon)}</td>
     </tr>`;
   }).join('');
 
@@ -400,7 +589,6 @@ function sortTable(col, type) {
   if (sortCol === col) sortDir *= -1;
   else { sortCol = col; sortDir = 1; }
 
-  // update header classes
   document.querySelectorAll('th').forEach(th => {
     th.classList.remove('sort-asc', 'sort-desc');
     if (th.dataset.col === col) th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
@@ -413,7 +601,6 @@ function sortTable(col, type) {
     return va.localeCompare(vb) * sortDir;
   });
   renderTable(sorted);
-  // re-highlight selected
   if (currentSample) {
     document.querySelectorAll('#sample-tbody tr').forEach(r => {
       if (r.dataset.sample === currentSample) r.classList.add('selected');
@@ -441,6 +628,60 @@ function populateDropdown() {
 }
 
 // ============================================================
+// Overlap table
+// ============================================================
+function renderOverlapTable() {
+  const header = document.getElementById('overlap-header');
+  const tbody = document.getElementById('overlap-tbody');
+  
+  // Header row
+  const thresholds = Object.keys(OVERLAP).map(Number);
+  header.innerHTML = '<th>Threshold</th>' + 
+    SAMPLE_NAMES.map(s => `<th>${s}</th>`).join('') +
+    '<th class="in-all-col">In ALL Samples</th>';
+  
+  // Data rows
+  tbody.innerHTML = thresholds.map(thresh => {
+    const row = OVERLAP[thresh];
+    return '<tr>' +
+      `<td>≥${thresh} cells</td>` +
+      SAMPLE_NAMES.map(s => `<td>${fmt(row.per_sample[s])}</td>`).join('') +
+      `<td class="in-all-col">${fmt(row.in_all)}</td>` +
+      '</tr>';
+  }).join('');
+}
+
+// ============================================================
+// Heterogeneity metrics
+// ============================================================
+function renderHeterogeneity() {
+  const grid = document.getElementById('het-grid');
+  
+  const metrics = [
+    {
+      title: 'Average Gini Coefficient',
+      value: fmt4(GLOBAL.avg_gini),
+      desc: 'Measures inequality in clone sizes (0=equal, 1=unequal)',
+      badge: giniBadge(GLOBAL.avg_gini)
+    },
+    {
+      title: 'Average Shannon Index',
+      value: fmt4(GLOBAL.avg_shannon),
+      desc: 'Measures diversity (higher = more diverse clone distribution)',
+      badge: ''
+    }
+  ];
+  
+  grid.innerHTML = metrics.map(m => `
+    <div class="het-card">
+      <div class="het-card-title">${m.title} ${m.badge}</div>
+      <div class="het-card-value">${m.value}</div>
+      <div class="het-card-desc">${m.desc}</div>
+    </div>
+  `).join('');
+}
+
+// ============================================================
 // Chart instances
 // ============================================================
 let charts = {};
@@ -455,18 +696,15 @@ let currentSample = null;
 
 function selectSample(name) {
   currentSample = name;
-  // highlight row
   document.querySelectorAll('#sample-tbody tr').forEach(r => {
     r.classList.toggle('selected', r.dataset.sample === name);
   });
-  // sync dropdown
   document.getElementById('sample-select').value = name;
-  // show charts
   document.getElementById('detail-placeholder').style.display = 'none';
   document.getElementById('detail-charts').style.display = 'block';
 
   renderAbundance(name);
-  renderSizeDist(name);
+  renderSizeDensity(name);
   renderTop20(name);
   renderEditDist(name);
 }
@@ -477,12 +715,6 @@ function renderAbundance(name) {
   const s = DATA[name];
   const ranked = s.ranked_sizes;
   const labels = ranked.map((_, i) => i + 1);
-
-  // Annotate top 3 with barcode labels
-  const pointLabels = ranked.map((v, i) => {
-    if (i < 3 && s.top_clones[i]) return s.top_clones[i].barcode;
-    return null;
-  });
 
   const ctx = document.getElementById('chartAbundance').getContext('2d');
   charts['abundance'] = new Chart(ctx, {
@@ -527,7 +759,6 @@ function renderAbundance(name) {
             }
           }
         },
-        annotation: undefined,
       }
     },
     plugins: [{
@@ -555,50 +786,78 @@ function renderAbundance(name) {
   });
 }
 
-// Chart B: Clone Size Distribution
-function renderSizeDist(name) {
-  destroyChart('sizedist');
+// Chart B: Clone Size Density (KDE-style)
+function renderSizeDensity(name) {
+  destroyChart('sizedensity');
   const s = DATA[name];
-  const keys = ['Singleton', 'Small (2-5)', 'Medium (6-20)', 'Large (21-100)', 'Dominant (>100)'];
-  const vals = keys.map(k => s.clone_size_buckets[k] || 0);
-  const colors = ['#94A3B8', '#60A5FA', '#F59E0B', '#EF4444', '#DC2626'];
+  const densityData = s.clone_size_density;
+  
+  if (!densityData || densityData.length === 0) {
+    const ctx = document.getElementById('chartSizeDensity').getContext('2d');
+    ctx.canvas.parentNode.innerHTML = '<div class="placeholder">No density data available</div>';
+    return;
+  }
+  
+  const labels = densityData.map(d => fmt(d.x));
+  const values = densityData.map(d => d.y);
 
-  const ctx = document.getElementById('chartSizeDist').getContext('2d');
-  charts['sizedist'] = new Chart(ctx, {
-    type: 'bar',
+  const ctx = document.getElementById('chartSizeDensity').getContext('2d');
+  charts['sizedensity'] = new Chart(ctx, {
+    type: 'line',
     data: {
-      labels: keys,
-      datasets: [{ data: vals, backgroundColor: colors, borderRadius: 4 }]
+      labels,
+      datasets: [{
+        label: 'Clone Count',
+        data: values,
+        borderColor: '#16A34A',
+        backgroundColor: 'rgba(22,163,74,0.1)',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.3,
+      }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      scales: {
+        y: {
+          title: { display: true, text: 'Number of Clones', font: { size: 11 } },
+          beginAtZero: true,
+        },
+        x: {
+          title: { display: true, text: 'Clone Size (cells, log scale)', font: { size: 11 } },
+          ticks: { maxTicksLimit: 10 }
+        }
+      },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => `${fmt(ctx.raw)} clones` } }
-      },
-      scales: {
-        y: { title: { display: true, text: 'Number of Clones', font: { size: 11 } } },
-        x: { ticks: { font: { size: 11 } } }
+        tooltip: {
+          callbacks: {
+            title: ctx => `Clone size: ~${ctx[0].label} cells`,
+            label: ctx => `${fmt(ctx.raw)} clones`,
+          }
+        }
       }
     }
   });
 }
 
-// Chart C: Top 20 Clones
+// Chart C: Top 20 Clones (reversed - largest at top)
 function renderTop20(name) {
   destroyChart('top20');
   const s = DATA[name];
   const top = s.top_clones;
-  const labels = top.map(c => c.barcode).reverse();
-  const values = top.map(c => c.n_cells).reverse();
-  const pcts = top.map(c => c.pct).reverse();
+  
+  // Reverse so largest is at top (index 0)
+  const labels = top.map(c => c.barcode);
+  const values = top.map(c => c.n_cells);
+  const pcts = top.map(c => c.pct);
   const colors = top.map((_, i) => {
-    const ri = top.length - 1 - i; // reversed index
-    if (ri < 3) return '#DC2626';
-    if (ri < 10) return '#D97706';
+    if (i < 3) return '#DC2626';
+    if (i < 10) return '#D97706';
     return '#2563EB';
-  }).reverse();
+  });
 
   const ctx = document.getElementById('chartTop20').getContext('2d');
   charts['top20'] = new Chart(ctx, {
@@ -615,23 +874,22 @@ function renderTop20(name) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: ctx => {
-              const i = labels.length - 1 - ctx.dataIndex;
-              return `${fmt(ctx.raw)} cells (${pcts[ctx.dataIndex]}%)`;
-            }
+            label: ctx => `${fmt(ctx.raw)} cells (${pcts[ctx.dataIndex]}%)`
           }
         },
-        datalabels: undefined,
       },
       scales: {
         x: { title: { display: true, text: 'Number of Cells', font: { size: 11 } } },
-        y: { ticks: { font: { size: 10 } } }
+        y: { 
+          ticks: { font: { size: 10 } },
+          reverse: false  // Largest at top
+        }
       }
     },
     plugins: [{
       id: 'barPctLabels',
       afterDatasetsDraw(chart) {
-        const { ctx: c, scales: { x } } = chart;
+        const { ctx: c } = chart;
         chart.data.datasets[0].data.forEach((val, i) => {
           const meta = chart.getDatasetMeta(0);
           const bar = meta.data[i];
@@ -694,7 +952,6 @@ function renderEditDist(name) {
 // Cross-sample charts
 // ============================================================
 function renderCrossCharts() {
-  // Sort by cells descending for Chart E
   const sorted = [...SAMPLE_NAMES].sort((a, b) => DATA[b].cells - DATA[a].cells);
 
   // Chart E: Cells per sample
@@ -780,9 +1037,10 @@ function renderCrossCharts() {
 renderSummary();
 renderTable(SAMPLE_NAMES);
 populateDropdown();
+renderOverlapTable();
+renderHeterogeneity();
 renderCrossCharts();
 
-// Auto-select first sample
 if (SAMPLE_NAMES.length > 0) selectSample(SAMPLE_NAMES[0]);
 </script>
 </body>
@@ -795,27 +1053,27 @@ if (SAMPLE_NAMES.length > 0) selectSample(SAMPLE_NAMES[0]);
 # ---------------------------------------------------------------------------
 
 def detect_run_mode(stats):
-    """Heuristic: if all clone barcodes look random (no common prefix/pattern), call it Discovery."""
-    # We can't reliably detect reference barcodes from this CSV alone.
-    # For now, default to Discovery mode unless user passes a flag.
+    """Heuristic: default to Discovery mode."""
     return "Discovery Mode"
 
 
 def generate_report(csv_path, output_path, title):
-    print(f"[1/4] Loading data from {csv_path}...")
+    print(f"[1/5] Loading data from {csv_path}...")
     raw = load_data(csv_path)
 
-    print(f"[2/4] Computing stats for {len(raw)} samples...")
+    print(f"[2/5] Computing stats for {len(raw)} samples...")
     stats = compute_stats(raw)
     glob = global_stats(stats)
+    overlap = compute_global_overlap(raw)
 
     run_mode = detect_run_mode(stats)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     input_filename = os.path.basename(csv_path)
 
-    print(f"[3/4] Building HTML report...")
+    print(f"[3/5] Building HTML report...")
     data_json = json.dumps(stats, separators=(",", ":"))
     global_json = json.dumps(glob, separators=(",", ":"))
+    overlap_json = json.dumps(overlap, separators=(",", ":"))
 
     html = HTML_TEMPLATE
     html = html.replace("{{TITLE}}", title)
@@ -824,17 +1082,21 @@ def generate_report(csv_path, output_path, title):
     html = html.replace("{{RUN_MODE}}", run_mode)
     html = html.replace("{{DATA_JSON}}", data_json)
     html = html.replace("{{GLOBAL_JSON}}", global_json)
+    html = html.replace("{{OVERLAP_JSON}}", overlap_json)
 
-    print(f"[4/4] Writing to {output_path}...")
+    print(f"[4/5] Writing to {output_path}...")
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(html)
 
     size_kb = os.path.getsize(output_path) / 1024
+    print(f"[5/5] Complete!")
     print(f"\n✅ Report generated: {output_path} ({size_kb:.1f} KB)")
     print(f"   Samples: {glob['total_samples']}")
     print(f"   Reads:   {glob['total_reads']:,}")
     print(f"   Cells:   {glob['total_cells']:,}")
     print(f"   Clones:  {glob['total_clones']:,}")
+    print(f"   Avg Gini: {glob['avg_gini']:.4f}")
+    print(f"   Avg Shannon: {glob['avg_shannon']:.4f}")
 
 
 # ---------------------------------------------------------------------------
@@ -843,7 +1105,7 @@ def generate_report(csv_path, output_path, title):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate a NextClone HTML report from clone_barcodes.csv"
+        description="Generate a NextClone HTML report from clone_barcodes.csv (v2)"
     )
     parser.add_argument("input_csv", help="Path to clone_barcodes.csv")
     parser.add_argument("--output", default="report.html", help="Output HTML file (default: report.html)")

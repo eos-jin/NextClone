@@ -2,7 +2,7 @@
 
 Self-contained Python scripts to generate interactive HTML dashboards from NextClone output. No external dependencies — pure Python stdlib + Chart.js via CDN.
 
-## Single-run report
+## Single-run report (v2)
 
 Generates a per-sample HTML dashboard from a single `clone_barcodes.csv`.
 
@@ -12,11 +12,19 @@ python3 generate_report.py clone_barcodes.csv \
   --title "My Run"
 ```
 
-**Charts included:**
-- Sample overview table (reads, cells, clones, clonality)
-- Ranked clone abundance (log scale)
-- Clone size distribution (singleton → dominant)
-- Top 20 clones (horizontal bar)
+**New in v2 (2026-04-09):**
+- **Clone overlap table** — shows how many clones are shared across samples at different cell thresholds (≥5, 10, 15, 20, 50, 100 cells)
+- **Heterogeneity metrics** — Gini coefficient and Shannon index for each sample
+- **Clone size density plot** — KDE-style curve showing clone size distribution
+- **Reversed top 20 clones** — largest clones now at top of chart (easier to read)
+
+**All charts:**
+- Sample overview table (reads, cells, clones, Gini, Shannon)
+- Clone overlap across samples (new!)
+- Heterogeneity metrics summary (new!)
+- Ranked clone abundance (log scale, top 3 annotated)
+- Clone size density curve (new!)
+- Top 20 clones (horizontal bar, reversed, with % labels)
 - Edit distance QC (FlankEditDist + BarcodeEditDist)
 - Cross-sample clonality comparison
 
