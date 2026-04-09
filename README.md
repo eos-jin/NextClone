@@ -76,11 +76,19 @@ nextflow run main.nf --discovery_mode true --filter_discovered_barcodes true
 
 NextClone automatically generates an interactive HTML dashboard at the end of every run, saved to your `publish_dir` as `nextclone_qc_report.html`.
 
-The report includes:
-- Sample overview table (reads, cells, unique clones, clonality)
-- Ranked clone abundance plot (log scale)
-- Clone size distribution (singleton → dominant)
-- Top 20 clones per sample
+**New in v2 (2026-04-09):**
+- **Clone overlap table** — shared clones across samples at different thresholds (≥5, 10, 15, 20, 50, 100 cells)
+- **Heterogeneity metrics** — Gini coefficient and Shannon index for each sample
+- **Clone size density plot** — KDE-style curve showing clone size distribution
+- **Reversed top 20 clones** — largest clones now at top (easier to read)
+
+**All charts included:**
+- Sample overview table (reads, cells, clones, Gini, Shannon)
+- Clone overlap across samples (new!)
+- Heterogeneity metrics summary (new!)
+- Ranked clone abundance (log scale, top 3 annotated)
+- Clone size density curve (new!)
+- Top 20 clones (horizontal bar, reversed, with % labels)
 - Edit distance QC (FlankEditDist & BarcodeEditDist)
 - Cross-sample clonality comparison
 
@@ -88,6 +96,36 @@ To set a custom title:
 ```bash
 nextflow run main.nf --report_title "My Experiment — ZR751 2026"
 ```
+
+### Manual report generation (CLI)
+
+You can also generate reports manually from any `clone_barcodes.csv` file:
+
+```bash
+# Basic usage
+cd /path/to/nextclone/output
+python3 /path/to/NextClone/reports/generate_report.py clone_barcodes.csv
+
+# Custom output and title
+python3 reports/generate_report.py clone_barcodes.csv \
+  --output my_report.html \
+  --title "ZR751 Clonal Analysis — 2026-04-09"
+```
+
+**Command-line options:**
+```bash
+python3 generate_report.py <input_csv> [OPTIONS]
+
+Positional:
+  input_csv              Path to clone_barcodes.csv from NextClone output
+
+Options:
+  --output FILE          Output HTML file (default: report.html)
+  --title TEXT           Report title (default: "NextClone Report")
+  --help                 Show help message
+```
+
+For full documentation, see [`reports/README.md`](reports/README.md).
 
 ### Comparison report (manual)
 
