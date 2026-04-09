@@ -6,10 +6,51 @@ Self-contained Python scripts to generate interactive HTML dashboards from NextC
 
 Generates a per-sample HTML dashboard from a single `clone_barcodes.csv`.
 
+### Quick Start
+
 ```bash
+# Basic usage (outputs report.html)
+python3 generate_report.py clone_barcodes.csv
+
+# Custom output filename and title
 python3 generate_report.py clone_barcodes.csv \
-  --output report.html \
-  --title "My Run"
+  --output my_report.html \
+  --title "ZR751 Clonal Analysis — 2026-04-09"
+```
+
+### From NextClone Output
+
+After running NextClone, generate the report from your results directory:
+
+```bash
+# If NextClone output is in results_discoverymode_260331/
+cd /path/to/nextclone/results_discoverymode_260331
+python3 /path/to/NextClone/reports/generate_report.py clone_barcodes.csv \
+  --output nextclone_qc_report.html \
+  --title "Discovery Mode — ZR751"
+```
+
+### Command-Line Options
+
+```bash
+python3 generate_report.py <input_csv> [OPTIONS]
+
+Positional:
+  input_csv              Path to clone_barcodes.csv from NextClone output
+
+Options:
+  --output FILE          Output HTML file (default: report.html)
+  --title TEXT           Report title (default: "NextClone Report")
+  --help                 Show help message and exit
+
+Examples:
+  # Default output (report.html)
+  python3 generate_report.py clone_barcodes.csv
+  
+  # Custom output and title
+  python3 generate_report.py clone_barcodes.csv \
+    --output qc_report.html \
+    --title "Sample ABC — Discovery Mode"
 ```
 
 **New in v2 (2026-04-09):**
