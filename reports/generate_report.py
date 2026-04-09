@@ -934,7 +934,8 @@ function renderEditDist(name) {
 // Cross-sample charts
 // ============================================================
 function renderCrossCharts() {
-  const sorted = [...SAMPLE_NAMES].sort((a, b) => DATA[b].cells - DATA[a].cells);
+  // Sort samples alphabetically
+  const sorted = [...SAMPLE_NAMES].sort((a, b) => a.localeCompare(b));
 
   // Chart E: Cells per sample
   {
