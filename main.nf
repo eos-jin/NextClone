@@ -38,7 +38,8 @@ include {
     sc_merge_discovered_barcodes;
     sc_map_with_discovered_barcodes;
     sc_merge_barcodes;
-    generate_report
+    generate_report;
+    generate_run_log
 } from "./modules/extract_sc_clone_barcodes"
 
 workflow {
@@ -150,7 +151,9 @@ workflow {
                 ch_filtered_barcodes.first()
             )
             
-            generate_report(sc_merge_barcodes(ch_mapped_fastas.collect()))
+            ch_clone_barcodes = sc_merge_barcodes(ch_mapped_fastas.collect())
+            generate_report(ch_clone_barcodes)
+            generate_run_log(ch_clone_barcodes)
             
         } else {
             // =========================================
@@ -158,7 +161,9 @@ workflow {
             // =========================================
             
             ch_mapped_fastas = sc_map_unmapped_reads(ch_unmapped_fastas[0].flatten())
-            generate_report(sc_merge_barcodes(ch_mapped_fastas.collect()))
+            ch_clone_barcodes = sc_merge_barcodes(ch_mapped_fastas.collect())
+            generate_report(ch_clone_barcodes)
+            generate_run_log(ch_clone_barcodes)
         }
     }
 }

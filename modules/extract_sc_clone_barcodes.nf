@@ -149,9 +149,8 @@ process sc_filter_discovered_barcodes {
 process sc_merge_discovered_barcodes {
     // Merge barcode counts from all chunks and optionally filter using knee-plot
     // When params.filter_discovered_barcodes = false (default), all discovered
-    // barcodes are kept using flexiplex-filter --no-inflection.
-    // This is recommended for lineage tracing where singleton clones are biologically
-    // meaningful and should not be discarded.
+    // barcodes are kept (no filtering). This is recommended for lineage tracing 
+    // where singleton clones are biologically meaningful and should not be discarded.
     // When params.filter_discovered_barcodes = true, the knee-plot inflection point
     // method is used to remove low-count/noisy barcodes.
     label 'small'
@@ -160,6 +159,7 @@ process sc_merge_discovered_barcodes {
         path barcode_counts_files
 
     output:
+        path "all_barcodes.txt"
         path "filtered_barcodes.txt"
 
     """
@@ -171,13 +171,23 @@ process sc_merge_discovered_barcodes {
         awk '{counts[\$1] += \$2} END {for (bc in counts) print bc "\\t" counts[bc]}' | \
         sort -k2 -nr > combined_barcodes_counts.txt
     
+    # Save ALL discovered barcodes (no filtering) - useful for debugging and QC
+    echo -e "#barcode\\tcount" > all_barcodes.txt
+    cat combined_barcodes_counts.txt >> all_barcodes.txt
+    
     # Run flexiplex-filter:
-    # - filter_discovered_barcodes = false: --no-inflection keeps ALL discovered barcodes
+    # - filter_discovered_barcodes = false: copy all_barcodes.txt (no filtering)
     # - filter_discovered_barcodes = true:  knee-plot filtering removes low-count barcodes
-    flexiplex-filter \
-        ${params.filter_discovered_barcodes ? '' : '--no-inflection'} \
-        --outfile filtered_barcodes.txt \
-        combined_barcodes_counts.txt
+    if [ "${params.filter_discovered_barcodes}" = "true" ]; then
+        flexiplex-filter \
+            --outfile filtered_barcodes.txt \
+            combined_barcodes_counts.txt
+        echo -e "#barcode\\tcount" > filtered_barcodes.txt
+        tail -n +2 filtered_barcodes.txt.tmp >> filtered_barcodes.txt 2>/dev/null || cat filtered_barcodes.txt >> filtered_barcodes.txt.tmp && mv filtered_barcodes.txt.tmp filtered_barcodes.txt
+    else
+        # No filtering - just copy all_barcodes.txt
+        cp all_barcodes.txt filtered_barcodes.txt
+    fi
     """
 }
 
@@ -257,6 +267,60 @@ process sc_merge_barcodes {
 
     """
     sc_merge_clone_barcodes.py ${mapped_reads} ${outfile}
+    """
+}
+
+process generate_run_log {
+    // Generate run log with parameters and command line
+    // Saved to publish_dir for reproducibility
+    label 'small'
+    
+    publishDir params.publish_dir, mode: params.publish_dir_mode
+    
+    input:
+        path clone_barcodes
+    
+    output:
+        path "run_log.txt"
+    
+    script:
+        timestamp = new Date().format('yyyy-MM-dd HH:mm:ss')
+    """
+    cat > run_log.txt << EOF
+# NextClone Run Log
+# Generated: ${timestamp}
+
+## Command
+nextflow run ${projectDir}/main.nf \\
+    --mode ${params.mode} \\
+    --discovery_mode ${params.discovery_mode} \\
+    --filter_discovered_barcodes ${params.filter_discovered_barcodes} \\
+    --barcode_edit_distance ${params.barcode_edit_distance} \\
+    --adapter_edit_distance ${params.adapter_edit_distance} \\
+    --n_chunks ${params.n_chunks} \\
+    --publish_dir ${params.publish_dir}
+
+## Parameters
+mode = ${params.mode}
+discovery_mode = ${params.discovery_mode}
+filter_discovered_barcodes = ${params.filter_discovered_barcodes}
+barcode_edit_distance = ${params.barcode_edit_distance}
+adapter_edit_distance = ${params.adapter_edit_distance}
+barcode_length = ${params.barcode_length}
+n_chunks = ${params.n_chunks}
+publish_dir = ${params.publish_dir}
+
+## Output Files
+- all_barcodes.txt: All discovered barcodes (no filtering)
+- filtered_barcodes.txt: Barcodes after filtering (same as all_barcodes.txt if filter_discovered_barcodes=false)
+- clone_barcodes.csv: Final clone assignments to cells
+- nextclone_qc_report.html: Interactive QC dashboard
+
+## Notes
+- all_barcodes.txt contains ALL barcodes discovered in Pass 1, including singletons
+- filtered_barcodes.txt applies knee-plot filtering only if filter_discovered_barcodes=true
+- For lineage tracing, we recommend filter_discovered_barcodes=false to retain rare clones
+EOF
     """
 }
 

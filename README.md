@@ -70,6 +70,20 @@ nextflow run main.nf --discovery_mode true --filter_discovered_barcodes true
 | `publish_dir` | `output/` | Output directory |
 | `report_title` | — | Custom title for the HTML report (defaults to date-stamped title) |
 
+## Output Files
+
+NextClone generates the following files in your `publish_dir`:
+
+| File | Description |
+|------|-------------|
+| `all_barcodes.txt` | **All discovered barcodes** with counts (no filtering). Header: `#barcode\tcount` |
+| `filtered_barcodes.txt` | Barcodes after filtering. Same as `all_barcodes.txt` if `filter_discovered_barcodes=false` |
+| `clone_barcodes.csv` | Final clone assignments to cells (for downstream analysis) |
+| `nextclone_qc_report.html` | Interactive QC dashboard |
+| `run_log.txt` | Run parameters and command line (for reproducibility) |
+
+**Note:** `all_barcodes.txt` contains ALL barcodes discovered in Pass 1, including singletons. This is useful for debugging and QC.
+
 ## HTML Reports
 
 ### Standard report (auto-generated)
