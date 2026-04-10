@@ -164,53 +164,62 @@ process sc_merge_discovered_barcodes {
 
     """
     #!/usr/bin/bash
+    set -e  # Exit immediately on any error
     
-    # Combine all barcode counts files
-    # Sum counts for same barcodes across chunks
-    cat ${barcode_counts_files} | \
-        awk '{counts[\$1] += \$2} END {for (bc in counts) print bc "\\t" counts[bc]}' | \
-        sort -k2 -nr > combined_barcodes_counts.txt
+    echo "[SC_MERGE] ========================================" >&2
+    echo "[SC_MERGE] Starting sc_merge_discovered_barcodes" >&2
+    echo "[SC_MERGE] filter_discovered_barcodes=${params.filter_discovered_barcodes}" >&2
     
-    # Verify combined file has content before proceeding
+    # Count input files
+    n_chunks=0
+    for f in ${barcode_counts_files}; do
+        n_chunks=$((n_chunks + 1))
+        echo "[SC_MERGE]   Chunk $n_chunks: $f ($(wc -l < "$f") lines)" >&2
+    done
+    echo "[SC_MERGE] Total chunks: $n_chunks" >&2
+    
+    # Combine all barcode counts
+    echo "[SC_MERGE] Combining barcode counts..." >&2
+    cat ${barcode_counts_files} | awk '{counts[$1] += $2} END {for (bc in counts) print bc "\t" counts[bc]}' | sort -k2 -nr > combined_barcodes_counts.txt
+    
+    n_combined=$(wc -l < combined_barcodes_counts.txt)
+    echo "[SC_MERGE] combined_barcodes_counts.txt: $n_combined barcodes" >&2
+    head -5 combined_barcodes_counts.txt >&2
+    
     if [ ! -s combined_barcodes_counts.txt ]; then
-        echo "ERROR: combined_barcodes_counts.txt is empty! Check flexiplex discovery output." >&2
+        echo "[SC_MERGE ERROR] combined_barcodes_counts.txt is EMPTY!" >&2
         exit 1
     fi
     
-    # Save ALL discovered barcodes (no filtering) - useful for debugging and QC
-    # Header: #barcode = lineage tracing barcode sequence, count = number of reads supporting this barcode
-    echo -e "#barcode\\tcount" > all_barcodes.txt
+    # Create all_barcodes.txt
+    echo "[SC_MERGE] Creating all_barcodes.txt..." >&2
+    echo -e "#barcode\tcount" > all_barcodes.txt
     echo "# barcode: lineage tracing barcode sequence" >> all_barcodes.txt
     echo "# count: number of reads supporting this barcode" >> all_barcodes.txt
     cat combined_barcodes_counts.txt >> all_barcodes.txt
+    echo "[SC_MERGE] all_barcodes.txt: $(wc -l < all_barcodes.txt) lines" >&2
     
-    # IMPORTANT: flexiplex-filter has default bounds (min-rank=50, max-rank=95th percentile)
-    # Even with --no-inflection, it still filters! So we must NOT call it when filtering is disabled.
-    # See: https://davidsongroup.github.io/flexiplex/tutorial.html
-    
+    # Create filtered_barcodes.txt
     if [ "${params.filter_discovered_barcodes}" = "true" ]; then
-        # Run knee-plot inflection point filtering
-        flexiplex-filter \
-            --outfile filtered_barcodes.txt.tmp \
-            combined_barcodes_counts.txt
-        # Add header with explanation
+        echo "[SC_MERGE] Running flexiplex-filter..." >&2
+        flexiplex-filter --outfile filtered_barcodes.txt.tmp combined_barcodes_counts.txt
         echo "#barcode\tcount" > filtered_barcodes.txt
         echo "# barcode: lineage tracing barcode sequence" >> filtered_barcodes.txt
         echo "# count: number of reads supporting this barcode" >> filtered_barcodes.txt
         cat filtered_barcodes.txt.tmp >> filtered_barcodes.txt
         rm -f filtered_barcodes.txt.tmp
+        echo "[SC_MERGE] filtered_barcodes.txt: $(wc -l < filtered_barcodes.txt) lines" >&2
     else
-        # NO filtering at all - filtered_barcodes.txt should be identical to all_barcodes.txt
-        # Use cp to ensure file content is copied correctly (more reliable than cat >>)
+        echo "[SC_MERGE] filter_discovered_barcodes=false - copying all_barcodes.txt to filtered_barcodes.txt" >&2
         cp all_barcodes.txt filtered_barcodes.txt
-        
-        # Verify the copy worked
-        if [ ! -s filtered_barcodes.txt ]; then
-            echo "ERROR: Failed to create filtered_barcodes.txt!" >&2
-            exit 1
-        fi
+        echo "[SC_MERGE] filtered_barcodes.txt: $(wc -l < filtered_barcodes.txt) lines" >&2
+        diff -q all_barcodes.txt filtered_barcodes.txt >&2 && echo "[SC_MERGE] SUCCESS: Files identical" >&2
     fi
+    
+    echo "[SC_MERGE] COMPLETED" >&2
+    ls -lh all_barcodes.txt filtered_barcodes.txt >&2
     """
+
 }
 
 // =============================================================================
