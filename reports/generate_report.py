@@ -547,7 +547,7 @@ function fmt(n) {
   return Number(n).toLocaleString();
 }
 function pct(v) { return v.toFixed(1) + '%'; }
-function fmt4(v) { return v.toFixed(4); }
+function fmt2(v) { return v.toFixed(2); }
 
 // ============================================================
 // Summary bar
@@ -586,8 +586,8 @@ function renderTable(names) {
       <td class="num-cell">${fmt(s.cells)}</td>
       <td class="num-cell">${fmt(s.clones)}</td>
       <td class="num-cell">${pct(s.top1_pct)}</td>
-      <td class="num-cell">${fmt4(s.gini)} ${giniBadge(s.gini)}</td>
-      <td class="num-cell">${fmt4(s.shannon)}</td>
+      <td class="num-cell">${fmt2(s.gini)} ${giniBadge(s.gini)}</td>
+      <td class="num-cell">${fmt2(s.shannon)}</td>
     </tr>`;
   }).join('');
 

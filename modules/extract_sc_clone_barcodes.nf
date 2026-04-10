@@ -172,7 +172,10 @@ process sc_merge_discovered_barcodes {
         sort -k2 -nr > combined_barcodes_counts.txt
     
     # Save ALL discovered barcodes (no filtering) - useful for debugging and QC
+    # Header: #barcode = lineage tracing barcode sequence, count = number of reads supporting this barcode
     echo -e "#barcode\\tcount" > all_barcodes.txt
+    echo "# barcode: lineage tracing barcode sequence" >> all_barcodes.txt
+    echo "# count: number of reads supporting this barcode" >> all_barcodes.txt
     cat combined_barcodes_counts.txt >> all_barcodes.txt
     
     # IMPORTANT: flexiplex-filter has default bounds (min-rank=50, max-rank=95th percentile)
@@ -184,14 +187,18 @@ process sc_merge_discovered_barcodes {
         flexiplex-filter \
             --outfile filtered_barcodes.txt.tmp \
             combined_barcodes_counts.txt
-        # Add header
-        echo -e "#barcode\\tcount" > filtered_barcodes.txt
+        # Add header with explanation
+        echo "#barcode\tcount" > filtered_barcodes.txt
+        echo "# barcode: lineage tracing barcode sequence" >> filtered_barcodes.txt
+        echo "# count: number of reads supporting this barcode" >> filtered_barcodes.txt
         cat filtered_barcodes.txt.tmp >> filtered_barcodes.txt
         rm -f filtered_barcodes.txt.tmp
     else
         # NO filtering at all - just copy the combined file directly
         # This preserves ALL barcodes including singletons
-        echo -e "#barcode\\tcount" > filtered_barcodes.txt
+        echo "#barcode\tcount" > filtered_barcodes.txt
+        echo "# barcode: lineage tracing barcode sequence" >> filtered_barcodes.txt
+        echo "# count: number of reads supporting this barcode" >> filtered_barcodes.txt
         cat combined_barcodes_counts.txt >> filtered_barcodes.txt
     fi
     """
@@ -292,9 +299,27 @@ process generate_run_log {
     script:
         timestamp = new Date().format('yyyy-MM-dd HH:mm:ss')
     """
+    # Get software versions
+    NF_VERSION=\$(nextflow -version 2>&1 | head -1 || echo "unknown")
+    FLEXIPLEX_VERSION=\$(flexiplex --version 2>&1 | head -1 || echo "unknown")
+    PYTHON_VERSION=\$(python3 --version 2>&1 || echo "unknown")
+    
+    # Get git info if available
+    GIT_COMMIT=\$(git rev-parse HEAD 2>/dev/null || echo "Not a git repo")
+    GIT_BRANCH=\$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    
     cat > run_log.txt << EOF
 # NextClone Run Log
 # Generated: ${timestamp}
+
+## Software Versions
+Nextflow: \${NF_VERSION}
+Flexiplex: \${FLEXIPLEX_VERSION}
+Python: \${PYTHON_VERSION}
+
+## Code Version
+Git commit: \${GIT_COMMIT}
+Git branch: \${GIT_BRANCH}
 
 ## Command
 nextflow run ${projectDir}/main.nf \\
