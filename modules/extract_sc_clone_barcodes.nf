@@ -123,29 +123,6 @@ process sc_discover_barcodes {
     """
 }
 
-process sc_filter_discovered_barcodes {
-    // Filter discovered barcodes using flexiplex-filter
-    // Uses knee-plot inflection point method
-    // Optionally intersects with 10x whitelist if provided
-    label 'small'
-    
-    input:
-        path barcode_counts
-
-    output:
-        path "filtered_barcodes.txt"
-
-    """
-    #!/usr/bin/bash
-    
-    # Run flexiplex-filter to select high-quality barcodes
-    # Uses knee-plot inflection point method
-    flexiplex-filter \
-        --outfile filtered_barcodes.txt \
-        ${barcode_counts}
-    """
-}
-
 process sc_merge_discovered_barcodes {
     // Merge barcode counts from all chunks and optionally filter using knee-plot
     // When params.filter_discovered_barcodes = false (default), all discovered
