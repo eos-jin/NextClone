@@ -141,6 +141,57 @@ Options:
 
 For full documentation, see [`reports/README.md`](reports/README.md).
 
+## Output Management
+
+### Recommended Usage
+
+**Always use timestamped output directories** to prevent overwriting previous runs:
+
+```bash
+# DNA-seq mode
+nextflow run main.nf \\
+    --mode DNAseq \\
+    --dnaseq_fastq_files /path/to/fastq \\
+    --discovery_mode true \\
+    --filter_discovered_barcodes false \\
+    --publish_dir "results_DNAseq_$(date +%Y-%m-%d_%H-%M-%S)"
+
+# scRNA-seq mode
+nextflow run main.nf \\
+    --mode scRNAseq \\
+    --scrnaseq_bam_files /path/to/bams \\
+    --discovery_mode true \\
+    --filter_discovered_barcodes false \\
+    --publish_dir "results_scRNAseq_$(date +%Y-%m-%d_%H-%M-%S)"
+```
+
+**Example output:**
+```
+results_DNAseq_2026-04-10_11-45-22/
+├── all_barcodes.txt          # All discovered barcodes
+├── filtered_barcodes.txt     # Filtered barcodes (same as above if filter=false)
+├── clone_barcodes.csv        # Final clone assignments
+├── nextclone_qc_report.html  # Interactive QC dashboard
+└── run_log.txt               # Run parameters + software versions
+```
+
+### When to Clear Work Directory
+
+**Clear `work/` directory only when:**
+- Updating NextClone code (to avoid cached old results)
+- Conda environments are corrupted
+- Debugging unexpected behavior
+
+```bash
+# Clear work directory
+rm -rf work/
+
+# Clear conda cache (if needed)
+rm -rf /path/to/nextflow_local/conda_cache/
+```
+
+**For routine runs:** Keep `work/` to save compute time (Nextflow caches task results).
+
 ### Comparison report (manual)
 
 To compare two runs side by side (e.g. reference mode vs discovery mode), use the comparison script after both runs are complete:
