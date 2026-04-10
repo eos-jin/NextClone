@@ -200,17 +200,15 @@ process sc_merge_discovered_barcodes {
         cat filtered_barcodes.txt.tmp >> filtered_barcodes.txt
         rm -f filtered_barcodes.txt.tmp
     else
-        # NO filtering at all - just copy the combined file directly
-        # This preserves ALL barcodes including singletons
-        echo -e "#barcode\tcount" > filtered_barcodes.txt
-        echo "# barcode: lineage tracing barcode sequence" >> filtered_barcodes.txt
-        echo "# count: number of reads supporting this barcode" >> filtered_barcodes.txt
-        cat combined_barcodes_counts.txt >> filtered_barcodes.txt
+        # NO filtering at all - filtered_barcodes.txt should be identical to all_barcodes.txt
+        # Use cp to ensure file content is copied correctly (more reliable than cat >>)
+        cp all_barcodes.txt filtered_barcodes.txt
         
-        # Debug: ensure file has content
-        echo "DEBUG: all_barcodes.txt lines: $(wc -l < all_barcodes.txt)" >&2
-        echo "DEBUG: filtered_barcodes.txt lines: $(wc -l < filtered_barcodes.txt)" >&2
-        echo "DEBUG: combined_barcodes_counts.txt lines: $(wc -l < combined_barcodes_counts.txt)" >&2
+        # Verify the copy worked
+        if [ ! -s filtered_barcodes.txt ]; then
+            echo "ERROR: Failed to create filtered_barcodes.txt!" >&2
+            exit 1
+        fi
     fi
     """
 }
