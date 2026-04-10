@@ -173,17 +173,17 @@ process sc_merge_discovered_barcodes {
     # Count input files
     n_chunks=0
     for f in ${barcode_counts_files}; do
-        n_chunks=$((n_chunks + 1))
-        echo "[SC_MERGE]   Chunk $n_chunks: $f ($(wc -l < "$f") lines)" >&2
+        n_chunks=\$((n_chunks + 1))
+        echo "[SC_MERGE]   Chunk \$n_chunks: \$f (\$(wc -l < "\$f") lines)" >&2
     done
-    echo "[SC_MERGE] Total chunks: $n_chunks" >&2
+    echo "[SC_MERGE] Total chunks: \$n_chunks" >&2
     
     # Combine all barcode counts
     echo "[SC_MERGE] Combining barcode counts..." >&2
-    cat ${barcode_counts_files} | awk '{counts[$1] += $2} END {for (bc in counts) print bc "\t" counts[bc]}' | sort -k2 -nr > combined_barcodes_counts.txt
+    cat ${barcode_counts_files} | awk '{counts[\$1] += \$2} END {for (bc in counts) print bc "\t" counts[bc]}' | sort -k2 -nr > combined_barcodes_counts.txt
     
-    n_combined=$(wc -l < combined_barcodes_counts.txt)
-    echo "[SC_MERGE] combined_barcodes_counts.txt: $n_combined barcodes" >&2
+    n_combined=\$(wc -l < combined_barcodes_counts.txt)
+    echo "[SC_MERGE] combined_barcodes_counts.txt: \$n_combined barcodes" >&2
     head -5 combined_barcodes_counts.txt >&2
     
     if [ ! -s combined_barcodes_counts.txt ]; then
@@ -197,7 +197,7 @@ process sc_merge_discovered_barcodes {
     echo "# barcode: lineage tracing barcode sequence" >> all_barcodes.txt
     echo "# count: number of reads supporting this barcode" >> all_barcodes.txt
     cat combined_barcodes_counts.txt >> all_barcodes.txt
-    echo "[SC_MERGE] all_barcodes.txt: $(wc -l < all_barcodes.txt) lines" >&2
+    echo "[SC_MERGE] all_barcodes.txt: \$(wc -l < all_barcodes.txt) lines" >&2
     
     # Create filtered_barcodes.txt
     if [ "${params.filter_discovered_barcodes}" = "true" ]; then
@@ -208,11 +208,11 @@ process sc_merge_discovered_barcodes {
         echo "# count: number of reads supporting this barcode" >> filtered_barcodes.txt
         cat filtered_barcodes.txt.tmp >> filtered_barcodes.txt
         rm -f filtered_barcodes.txt.tmp
-        echo "[SC_MERGE] filtered_barcodes.txt: $(wc -l < filtered_barcodes.txt) lines" >&2
+        echo "[SC_MERGE] filtered_barcodes.txt: \$(wc -l < filtered_barcodes.txt) lines" >&2
     else
         echo "[SC_MERGE] filter_discovered_barcodes=false - copying all_barcodes.txt to filtered_barcodes.txt" >&2
         cp all_barcodes.txt filtered_barcodes.txt
-        echo "[SC_MERGE] filtered_barcodes.txt: $(wc -l < filtered_barcodes.txt) lines" >&2
+        echo "[SC_MERGE] filtered_barcodes.txt: \$(wc -l < filtered_barcodes.txt) lines" >&2
         diff -q all_barcodes.txt filtered_barcodes.txt >&2 && echo "[SC_MERGE] SUCCESS: Files identical" >&2
     fi
     
