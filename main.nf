@@ -141,14 +141,18 @@ workflow {
             // sc_merge_discovered_barcodes handles both cases via params.filter_discovered_barcodes:
             // - false (default): --no-inflection keeps ALL discovered barcodes
             // - true: knee-plot filtering removes low-count barcodes
-            ch_filtered_barcodes = sc_merge_discovered_barcodes(
+            // sc_merge_discovered_barcodes outputs TWO channels:
+            //   all_barcodes = all discovered barcodes (for QC/debugging)
+            //   filtered_barcodes = barcodes to use for Pass 2 mapping
+            ch_merged = sc_merge_discovered_barcodes(
                 ch_discovered.collect()
             )
             
-            // Pass 2: Map reads using discovered barcode list
+            // Pass 2: Map reads using FILTERED discovered barcode list
+            // Use named emit to be explicit about which file goes to mapping
             ch_mapped_fastas = sc_map_with_discovered_barcodes(
                 ch_unmapped_fastas[0].flatten(),
-                ch_filtered_barcodes.first()
+                ch_merged.filtered_barcodes.first()
             )
             
             ch_clone_barcodes = sc_merge_barcodes(ch_mapped_fastas.collect())

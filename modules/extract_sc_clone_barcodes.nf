@@ -159,8 +159,8 @@ process sc_merge_discovered_barcodes {
         path barcode_counts_files
 
     output:
-        path "all_barcodes.txt"
-        path "filtered_barcodes.txt"
+        path "all_barcodes.txt", emit: all_barcodes
+        path "filtered_barcodes.txt", emit: filtered_barcodes
 
     """
     #!/usr/bin/bash
@@ -203,17 +203,14 @@ process sc_merge_discovered_barcodes {
     if [ "${params.filter_discovered_barcodes}" = "true" ]; then
         echo "[SC_MERGE] Running flexiplex-filter..." >&2
         flexiplex-filter --outfile filtered_barcodes.txt.tmp combined_barcodes_counts.txt
-        echo "#barcode\tcount" > filtered_barcodes.txt
-        echo "# barcode: lineage tracing barcode sequence" >> filtered_barcodes.txt
-        echo "# count: number of reads supporting this barcode" >> filtered_barcodes.txt
-        cat filtered_barcodes.txt.tmp >> filtered_barcodes.txt
-        rm -f filtered_barcodes.txt.tmp
+        # flexiplex-filter output is raw barcodes, use directly (no comment headers)
+        mv filtered_barcodes.txt.tmp filtered_barcodes.txt
         echo "[SC_MERGE] filtered_barcodes.txt: \$(wc -l < filtered_barcodes.txt) lines" >&2
     else
-        echo "[SC_MERGE] filter_discovered_barcodes=false - copying all_barcodes.txt to filtered_barcodes.txt" >&2
-        cp all_barcodes.txt filtered_barcodes.txt
+        echo "[SC_MERGE] filter_discovered_barcodes=false - creating filtered_barcodes.txt (no headers)" >&2
+        # filtered_barcodes.txt must NOT have comment headers - flexiplex reads it as -k reference
+        cat combined_barcodes_counts.txt > filtered_barcodes.txt
         echo "[SC_MERGE] filtered_barcodes.txt: \$(wc -l < filtered_barcodes.txt) lines" >&2
-        diff -q all_barcodes.txt filtered_barcodes.txt >&2 && echo "[SC_MERGE] SUCCESS: Files identical" >&2
     fi
     
     echo "[SC_MERGE] COMPLETED" >&2
