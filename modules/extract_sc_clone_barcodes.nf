@@ -171,6 +171,12 @@ process sc_merge_discovered_barcodes {
         awk '{counts[\$1] += \$2} END {for (bc in counts) print bc "\\t" counts[bc]}' | \
         sort -k2 -nr > combined_barcodes_counts.txt
     
+    # Verify combined file has content before proceeding
+    if [ ! -s combined_barcodes_counts.txt ]; then
+        echo "ERROR: combined_barcodes_counts.txt is empty! Check flexiplex discovery output." >&2
+        exit 1
+    fi
+    
     # Save ALL discovered barcodes (no filtering) - useful for debugging and QC
     # Header: #barcode = lineage tracing barcode sequence, count = number of reads supporting this barcode
     echo -e "#barcode\\tcount" > all_barcodes.txt
@@ -196,10 +202,15 @@ process sc_merge_discovered_barcodes {
     else
         # NO filtering at all - just copy the combined file directly
         # This preserves ALL barcodes including singletons
-        echo "#barcode\tcount" > filtered_barcodes.txt
+        echo -e "#barcode\tcount" > filtered_barcodes.txt
         echo "# barcode: lineage tracing barcode sequence" >> filtered_barcodes.txt
         echo "# count: number of reads supporting this barcode" >> filtered_barcodes.txt
         cat combined_barcodes_counts.txt >> filtered_barcodes.txt
+        
+        # Debug: ensure file has content
+        echo "DEBUG: all_barcodes.txt lines: $(wc -l < all_barcodes.txt)" >&2
+        echo "DEBUG: filtered_barcodes.txt lines: $(wc -l < filtered_barcodes.txt)" >&2
+        echo "DEBUG: combined_barcodes_counts.txt lines: $(wc -l < combined_barcodes_counts.txt)" >&2
     fi
     """
 }
