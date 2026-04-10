@@ -175,18 +175,24 @@ process sc_merge_discovered_barcodes {
     echo -e "#barcode\\tcount" > all_barcodes.txt
     cat combined_barcodes_counts.txt >> all_barcodes.txt
     
-    # Run flexiplex-filter:
-    # - filter_discovered_barcodes = false: copy all_barcodes.txt (no filtering)
-    # - filter_discovered_barcodes = true:  knee-plot filtering removes low-count barcodes
+    # IMPORTANT: flexiplex-filter has default bounds (min-rank=50, max-rank=95th percentile)
+    # Even with --no-inflection, it still filters! So we must NOT call it when filtering is disabled.
+    # See: https://davidsongroup.github.io/flexiplex/tutorial.html
+    
     if [ "${params.filter_discovered_barcodes}" = "true" ]; then
+        # Run knee-plot inflection point filtering
         flexiplex-filter \
-            --outfile filtered_barcodes.txt \
+            --outfile filtered_barcodes.txt.tmp \
             combined_barcodes_counts.txt
+        # Add header
         echo -e "#barcode\\tcount" > filtered_barcodes.txt
-        tail -n +2 filtered_barcodes.txt.tmp >> filtered_barcodes.txt 2>/dev/null || cat filtered_barcodes.txt >> filtered_barcodes.txt.tmp && mv filtered_barcodes.txt.tmp filtered_barcodes.txt
+        cat filtered_barcodes.txt.tmp >> filtered_barcodes.txt
+        rm -f filtered_barcodes.txt.tmp
     else
-        # No filtering - just copy all_barcodes.txt
-        cp all_barcodes.txt filtered_barcodes.txt
+        # NO filtering at all - just copy the combined file directly
+        # This preserves ALL barcodes including singletons
+        echo -e "#barcode\\tcount" > filtered_barcodes.txt
+        cat combined_barcodes_counts.txt >> filtered_barcodes.txt
     fi
     """
 }
