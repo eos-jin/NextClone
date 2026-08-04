@@ -219,3 +219,55 @@ The comparison report shows:
 <!-- ## Citation -->
 
 <!-- If you use NextClone in your study, please kindly cite our preprint on bioRxiv. -->
+
+---
+
+## Development
+
+### For Developers
+
+See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) for:
+- Architecture overview and data flow diagrams
+- Complete list of changes in this fork vs upstream
+- Known issues and TODOs
+- Development workflow and testing instructions
+
+### Quick Start for Contributors
+
+```bash
+# Clone the fork
+git clone https://github.com/eos-jin/NextClone.git
+cd NextClone
+
+# Run the test suite (requires flexiplex installed)
+python tests/test_discovery_mode.py
+
+# Run the pipeline locally with test data
+nextflow run main.nf --mode scRNAseq --discovery_mode true \
+    --scrnaseq_bam_files tests/data/
+
+# Generate a report from an existing CSV
+python3 reports/generate_report.py /path/to/clone_barcodes.csv \
+    --output report.html --title "My Test Run"
+```
+
+### Branches
+
+- `main` — current development fork (20 commits ahead of upstream)
+- `upstream/main` — latest from phipsonlab/NextClone
+
+### Submitting Changes
+
+1. Fork [eos-jin/NextClone](https://github.com/eos-jin/NextClone)
+2. Create a feature branch
+3. Run tests: `python tests/test_discovery_mode.py`
+4. Submit a pull request
+
+### Contributors
+
+- **Phipson Lab** — original NextClone pipeline
+- **Eos** — discovery mode, HTML reports, test suite, bug fixes, WEHI HPC compatibility, developer documentation
+
+### License
+
+Same as upstream. See [LICENSE](LICENSE).
