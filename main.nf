@@ -2,7 +2,7 @@
 
 // =============================================================================
 // NextClone - Clonal barcode extraction pipeline
-// Supports both DNAseq and scRNAseq modes
+// Supports DNAseq, scRNAseq, and LARRY modes
 // 
 // Two barcode identification approaches:
 // 1. Whitelist mode (default): Use known barcode reference (clone_barcodes_reference)
@@ -10,6 +10,11 @@
 //    - Pass 1: Run Flexiplex without -k to discover barcodes (-f 0 for strict match)
 //    - Filter: Use flexiplex-filter (knee-plot method)
 //    - Pass 2: Run Flexiplex with the discovered/filtered barcode list
+//
+// LARRY mode: Cas9-based lineage tracing (Weinreb et al., Science 2020)
+//    - Extracts LARRY barcodes from paired R1/R2 FASTQ files
+//    - R1: Cell barcode (16bp) + UMI (8bp)
+//    - R2: LARRY barcode (40bp after prefix GTTGCTAGGAGAGACCATATG)
 // =============================================================================
 
 params.barcode_length_chr = '?' * params.barcode_length
@@ -26,6 +31,17 @@ include {
     dnaseq_map_with_discovered_barcodes;
     dnaseq_collapse_barcodes
 } from "./modules/extract_dnaseq_barcodes"
+
+// Import LARRY processes
+include { 
+    larry_extract_barcodes;
+    larry_filter_and_cluster
+} from "./modules/extract_larry_barcodes"
+
+// Import CellBarcode filtering process
+include { 
+    cellbarcode_filter
+} from "./modules/cellbarcode_filter"
 
 // Import scRNAseq processes
 include { 
@@ -86,10 +102,18 @@ workflow {
             // Pass 1: Discover barcodes from filtered reads
             ch_discovered = dnaseq_discover_barcodes(ch_filtered_reads)
             
-            // Combine all discovered barcode counts and filter using knee-plot method
-            ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(
-                ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
-            )
+            // Combine all discovered barcode counts
+            ch_combined_counts = ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
+            
+            // Filter discovered barcodes using selected method
+            if (params.discovery_filter_method == 'cellbarcode') {
+                // CellBarcode filtering (Sun et al. 2024)
+                ch_filtered_barcodes = cellbarcode_filter(ch_combined_counts)
+                    .map { it[0] }  // Get filtered_barcodes.txt
+            } else {
+                // Default: flexiplex knee-plot filtering
+                ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(ch_combined_counts)
+            }
             
             // Pass 2: Re-read files, preprocess, split, and map with discovered barcodes
             ch_barcode_chunks = Channel.fromPath("${params.dnaseq_fastq_files}/*.fastq.gz") |
@@ -118,6 +142,32 @@ workflow {
             dnaseq_collapse_barcodes(ch_barcode_mappings.collect())
         }
 
+    }
+    
+    if (params.mode == 'LARRY') {
+        // =========================================
+        // LARRY workflow (Cas9-based lineage tracing)
+        // =========================================
+        // LARRY requires paired R1/R2 FASTQ files:
+        // - R1: Cell barcode (16bp) + UMI (8bp)
+        // - R2: LARRY barcode (40bp after prefix)
+        //
+        // Workflow:
+        // 1. Extract LARRY barcodes from R1/R2 pairs
+        // 2. Filter by minimum reads per (cell, umi, barcode) tuple
+        // 3. Cluster LARRY barcodes by Hamming distance
+        // 4. Count UMIs per (cell, barcode) combination
+        // 5. Filter by minimum UMIs per (cell, barcode)
+        // 6. Output clone assignments per cell
+        
+        // Step 1: Extract LARRY barcodes from R1/R2 pairs
+        ch_r1_files = Channel.fromPath("${params.larry_r1_files}")
+        ch_r2_files = Channel.fromPath("${params.larry_r2_files}")
+        
+        ch_larry_fastq = larry_extract_barcodes(ch_r1_files, ch_r2_files)
+        
+        // Step 2-6: Filter, cluster, and count (all in one step for efficiency)
+        larry_filter_and_cluster(ch_larry_fastq, "sample1")
     } 
     
     if (params.mode == 'scRNAseq') {
