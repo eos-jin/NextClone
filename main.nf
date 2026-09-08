@@ -2,7 +2,7 @@
 
 // =============================================================================
 // NextClone - Clonal barcode extraction pipeline
-// Supports both DNAseq and scRNAseq modes
+// Supports DNAseq, scRNAseq, and LARRY modes
 // 
 // Two barcode identification approaches:
 // 1. Whitelist mode (default): Use known barcode reference (clone_barcodes_reference)
@@ -10,6 +10,11 @@
 //    - Pass 1: Run Flexiplex without -k to discover barcodes (-f 0 for strict match)
 //    - Filter: Use flexiplex-filter (knee-plot method)
 //    - Pass 2: Run Flexiplex with the discovered/filtered barcode list
+//
+// LARRY mode: Cas9-based lineage tracing (Weinreb et al., Science 2020)
+//    - Extracts LARRY barcodes from paired R1/R2 FASTQ files
+//    - R1: Cell barcode (16bp) + UMI (8bp)
+//    - R2: LARRY barcode (40bp after prefix GTTGCTAGGAGAGACCATATG)
 // =============================================================================
 
 params.barcode_length_chr = '?' * params.barcode_length
@@ -26,6 +31,13 @@ include {
     dnaseq_map_with_discovered_barcodes;
     dnaseq_collapse_barcodes
 } from "./modules/extract_dnaseq_barcodes"
+
+// Import LARRY processes
+include { 
+    larry_extract_barcodes;
+    larry_count_barcodes;
+    larry_split_reads_to_chunks
+} from "./modules/extract_larry_barcodes"
 
 // Import scRNAseq processes
 include { 
@@ -118,6 +130,49 @@ workflow {
             dnaseq_collapse_barcodes(ch_barcode_mappings.collect())
         }
 
+    }
+    
+    if (params.mode == 'LARRY') {
+        // =========================================
+        // LARRY workflow (Cas9-based lineage tracing)
+        // =========================================
+        // LARRY requires paired R1/R2 FASTQ files:
+        // - R1: Cell barcode (16bp) + UMI (8bp)
+        // - R2: LARRY barcode (40bp after prefix)
+        
+        // Step 1: Extract LARRY barcodes from R1/R2 pairs
+        ch_r1_files = Channel.fromPath("${params.larry_r1_files}")
+        ch_r2_files = Channel.fromPath("${params.larry_r2_files}")
+        
+        ch_larry_fastq = larry_extract_barcodes(ch_r1_files, ch_r2_files)
+        
+        // Step 2: Count unique barcodes
+        ch_barcode_counts = larry_count_barcodes(ch_larry_fastq)
+        
+        // Step 3: Split into chunks for parallel mapping
+        ch_barcode_chunks = larry_split_reads_to_chunks(ch_barcode_counts)
+        
+        // Step 4: Map barcodes (reuse DNAseq mapping processes)
+        if (params.discovery_mode) {
+            // Discovery mode: discover barcodes from LARRY data
+            ch_discovered = dnaseq_discover_barcodes(ch_barcode_chunks.flatten())
+            ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(
+                ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
+            )
+            
+            // Re-split for mapping pass
+            ch_map_chunks = larry_split_reads_to_chunks(ch_filtered_barcodes)
+            ch_barcode_mappings = dnaseq_map_with_discovered_barcodes(
+                ch_map_chunks.flatten(),
+                ch_filtered_barcodes.first()
+            )
+        } else {
+            // Whitelist mode: map to known barcodes
+            ch_barcode_mappings = dnaseq_map_barcodes(ch_barcode_chunks.flatten())
+        }
+        
+        // Step 5: Collapse and count
+        dnaseq_collapse_barcodes(ch_barcode_mappings.collect())
     } 
     
     if (params.mode == 'scRNAseq') {
