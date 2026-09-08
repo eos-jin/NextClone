@@ -24,6 +24,13 @@ The fork is **20 commits ahead of upstream/main** with +3,247 lines added.
 main.nf                          ← Entry point, workflow orchestration
 ├── modules/extract_dnaseq_barcodes.nf    ← DNA-seq processes (9 processes)
 ├── modules/extract_sc_clone_barcodes.nf  ← scRNA-seq processes (11 processes)
+├── modules/extract_larry_barcodes.nf     ← LARRY extraction process
+├── modules/larry_filter_and_cluster.nf   ← LARRY filtering/clustering process
+├── modules/cellbarcode_filter.nf         ← CellBarcode filtering process
+├── bin/                                  ← Python scripts
+│   ├── larry_extract_barcodes.py         ← LARRY barcode extraction
+│   ├── larry_filter_and_cluster.py       ← LARRY filtering and clustering
+│   └── cellbarcode_filter.R              ← CellBarcode filtering (R package)
 ├── conda_env/                           ← Conda environments per workflow
 │   ├── extract_dnaseq_env.yaml
 │   └── extract_sc_env.yaml
@@ -50,7 +57,9 @@ Input BAM files
     │
     ├─→ Pass 1: sc_discover_barcodes (flexiplex -f 0, no -k)
     │       ↓
-    │   sc_merge_discovered_barcodes       → Combine counts, output:
+    │   sc_merge_discovered_barcodes       → Combine counts
+    │       ↓
+    │   cellbarcode_filter                 → Filter using CellBarcode algorithm
     │       ├── all_barcodes.txt           → ALL discovered barcodes (QC)
     │       └── filtered_barcodes.txt      → Barcodes for Pass 2 mapping
     │
@@ -60,6 +69,31 @@ Input BAM files
             ↓
         generate_report (Python)           → HTML QC dashboard
         generate_run_log                   → Reproducibility log
+```
+
+### Data Flow (LARRY mode)
+
+```
+Input FASTQ files (R1 + R2)
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ larry_extract_barcodes (Python)         │ → Extract cell_bc, UMI, LARRY barcode
+│   - R1: cell_bc (16bp) + UMI (8bp)      │
+│   - R2: prefix + LARRY_bc (40bp)        │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ larry_filter_and_cluster (Python)       │ → Filter and cluster barcodes
+│   - Count (cell_bc, umi, barcode)       │
+│   - Filter by min_reads (default: 10)   │
+│   - Cluster by Hamming distance (≤3)    │
+│   - Filter by min_umis (default: 3)     │
+└─────────────────────────────────────────┘
+    │
+    ▼
+Output: larry_clones.csv
 ```
 
 ### Key Processes

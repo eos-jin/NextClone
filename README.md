@@ -18,15 +18,21 @@ For instructions on how to use *NextClone*, please visit the [user guide](https:
 
 ## Modes
 
-### Whitelist mode (default)
+NextClone supports three data types: **DNAseq**, **scRNAseq**, and **LARRY**.
+
+### DNAseq & scRNAseq Modes
+
+Both DNAseq and scRNAseq modes support two barcode identification approaches:
+
+#### Whitelist mode (default)
 
 Provide a list of known barcode sequences. Flexiplex maps all reads against the whitelist.
 
 ```bash
-nextflow run main.nf --clone_barcodes_reference /path/to/barcodes.txt
+nextflow run main.nf --mode DNAseq --clone_barcodes_reference /path/to/barcodes.txt
 ```
 
-### Discovery mode
+#### Discovery mode
 
 NextClone supports **discovery mode**, which identifies barcodes directly from the data without a pre-defined whitelist. This is useful when:
 
@@ -34,33 +40,83 @@ NextClone supports **discovery mode**, which identifies barcodes directly from t
 - You are working with a new or custom clonal barcoding system
 - You want to validate or supplement a known barcode list
 
-Discovery mode uses a two-pass approach powered by [Flexiplex](https://github.com/DavidsonGroup/flexiplex):
+Discovery mode uses a two-pass approach:
 
 1. **Pass 1 (Discovery):** Run Flexiplex without a barcode list (`-k` flag) using strict flanking sequence matching (`-f 0`) to identify candidate barcodes.
-2. **Pass 2 (Mapping):** Run Flexiplex with the discovered barcode list using standard edit distance parameters.
+2. **Filtering:** Apply [CellBarcode](https://github.com/wenjie1991/CellBarcode) filtering to remove noise and false positives.
+3. **Pass 2 (Mapping):** Run Flexiplex with the filtered barcode list.
 
 ```bash
-nextflow run main.nf --discovery_mode true
+nextflow run main.nf --mode DNAseq --discovery_mode true
 ```
 
 #### Barcode filtering in discovery mode
 
+Discovery mode uses **CellBarcode** (Sun et al., 2024, Nature Computational Science) for filtering discovered barcodes. CellBarcode implements multiple filtering strategies:
+
+- **auto** (default): 1D k-means clustering on log-transformed counts
+- **manual**: User-specified threshold
+- **cluster**: Remove barcodes similar to more abundant ones (Hamming distance)
+- **combined**: Auto threshold + cluster filtering
+
+Configure filtering via `nextflow.config`:
+
+```
+cellbarcode_method = 'auto'          // Filtering method
+cellbarcode_threshold = null          // Manual cutoff (for method='manual')
+cellbarcode_cluster_distance = 1      // Max edit distance for cluster filtering
+cellbarcode_min_count = 1             // Minimum count to consider
+```
+
 By default (`filter_discovered_barcodes = false`), **all barcodes discovered in Pass 1 are passed to Pass 2**, including singletons. This is recommended for lineage tracing experiments where rare clones are biologically meaningful.
 
-Setting `filter_discovered_barcodes = true` applies `flexiplex-filter` knee-plot inflection filtering, which removes low-count barcodes. Use this only for noisy datasets — **it will discard singleton and low-count clones**:
+### LARRY Mode
+
+**LARRY** (Lineage And RNA Recovery) is a Cas9-based lineage tracing method from the Klein Lab (Weinreb et al., Science 2020). NextClone provides native support for LARRY data processing.
+
+**Key difference**: LARRY does NOT use discovery/whitelist mode. It extracts all barcodes with a fixed prefix, then filters and clusters them.
+
+#### LARRY Data Structure
+
+- **R1**: Cell barcode (16bp) + UMI (8bp) from 10X scRNA-seq
+- **R2**: LARRY barcode read containing prefix `GTTGCTAGGAGAGACCATATG` + 40bp barcode
+
+#### LARRY Workflow
+
+1. **Extract**: Find all reads with LARRY prefix in R2, extract cell_bc + UMI from R1
+2. **Filter reads**: Remove low-confidence (cell, umi, barcode) tuples
+3. **Cluster barcodes**: Group similar LARRY barcodes by Hamming distance
+4. **Count UMIs**: Count unique UMIs per (cell, barcode)
+5. **Filter UMIs**: Remove barcodes with too few UMIs per cell
+6. **Output**: Clone assignments per cell
 
 ```bash
-nextflow run main.nf --discovery_mode true --filter_discovered_barcodes true
+nextflow run main.nf \
+    --mode LARRY \
+    --larry_r1_files "data/larry/*_R1_*.fastq.gz" \
+    --larry_r2_files "data/larry/*_R2_*.fastq.gz" \
+    --publish_dir results/larry
 ```
+
+#### LARRY Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `larry_min_reads` | 10 | Min reads per (cell, umi, barcode) tuple |
+| `larry_min_umis` | 3 | Min UMIs per (cell, barcode) |
+| `larry_max_hamming` | 3 | Max Hamming distance for clustering |
+| `larry_prefix` | `GTTGCTAGGAGAGACCATATG` | LARRY barcode prefix sequence |
+
+For detailed LARRY documentation, see [LARRY_INTEGRATION.md](LARRY_INTEGRATION.md).
 
 ## Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `mode` | `"scRNAseq"` | Workflow mode: `"scRNAseq"` or `"DNAseq"` |
+| `mode` | `"scRNAseq"` | Workflow mode: `"scRNAseq"`, `"DNAseq"`, or `"LARRY"` |
 | `clone_barcodes_reference` | — | Path to known barcode whitelist (required when `discovery_mode = false`) |
 | `discovery_mode` | `false` | Enable two-pass barcode discovery mode |
-| `filter_discovered_barcodes` | `false` | Apply knee-plot filtering to discovered barcodes (see above) |
+| `filter_discovered_barcodes` | `false` | Apply CellBarcode filtering to discovered barcodes (see above) |
 | `barcode_edit_distance` | `2` | Maximum edit distance for barcode matching |
 | `adapter_edit_distance` | `6` | Maximum edit distance for flanking adapter matching |
 | `adapter_5prime` | — | 5′ flanking adapter sequence |
@@ -69,6 +125,26 @@ nextflow run main.nf --discovery_mode true --filter_discovered_barcodes true
 | `n_chunks` | `2` | Number of read chunks for parallel processing |
 | `publish_dir` | `output/` | Output directory |
 | `report_title` | — | Custom title for the HTML report (defaults to date-stamped title) |
+
+### CellBarcode Filtering Parameters (Discovery Mode)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `cellbarcode_method` | `'auto'` | Filtering method: `'auto'`, `'manual'`, `'cluster'`, or `'combined'` |
+| `cellbarcode_threshold` | `null` | Manual threshold cutoff (required when `cellbarcode_method = 'manual'`) |
+| `cellbarcode_cluster_distance` | `1` | Maximum Hamming distance for cluster filtering |
+| `cellbarcode_min_count` | `1` | Minimum barcode count to consider |
+
+### LARRY Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `larry_r1_files` | `"data/larry/*_R1_*.fastq.gz"` | Glob pattern for R1 FASTQ files |
+| `larry_r2_files` | `"data/larry/*_R2_*.fastq.gz"` | Glob pattern for R2 FASTQ files |
+| `larry_prefix` | `"GTTGCTAGGAGAGACCATATG"` | LARRY barcode prefix sequence |
+| `larry_min_reads` | `10` | Minimum reads per (cell, umi, barcode) tuple |
+| `larry_min_umis` | `3` | Minimum UMIs per (cell, barcode) combination |
+| `larry_max_hamming` | `3` | Maximum Hamming distance for barcode clustering |
 
 ## Output Files
 

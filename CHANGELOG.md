@@ -2,10 +2,56 @@
 
 All notable changes to NextClone (eos-jin fork) will be documented in this file.
 
+---
+
+## [Unreleased] — v3.0.0 (LARRY Support + CellBarcode Filtering)
+
+### Added
+- **LARRY mode** (`--mode LARRY`): Native support for Cas9-based lineage tracing data (Weinreb et al., Science 2020)
+  - Extracts LARRY barcodes from paired R1/R2 FASTQ files
+  - Validates barcode structure using conserved position patterns
+  - Filters by minimum reads per (cell, umi, barcode) tuple
+  - Clusters barcodes by Hamming distance for error correction
+  - Counts and filters UMIs per (cell, barcode) combination
+  - Outputs clone assignments per cell
+- **CellBarcode filtering** for discovery mode (Sun et al., 2024, Nature Computational Science)
+  - Replaces flexiplex knee-plot filtering
+  - Implements multiple filtering strategies: auto (k-means), manual, cluster, combined
+  - Configurable parameters for threshold, cluster distance, and minimum count
+- **New files**:
+  - `bin/larry_extract_barcodes.py`: LARRY barcode extraction from R1/R2 pairs
+  - `bin/larry_filter_and_cluster.py`: LARRY filtering and clustering pipeline
+  - `bin/cellbarcode_filter.R`: CellBarcode filtering using R package for discovery mode
+  - `modules/extract_larry_barcodes.nf`: Nextflow processes for LARRY extraction
+  - `modules/larry_filter_and_cluster.nf`: Nextflow process for LARRY filtering
+  - `modules/cellbarcode_filter.nf`: Nextflow process for CellBarcode filtering
+  - `LARRY_INTEGRATION.md`: Comprehensive LARRY documentation
+
+### Changed
+- Discovery mode now uses **CellBarcode filtering** instead of flexiplex knee-plot
+- Removed `discovery_filter_method` parameter (CellBarcode is now the only method)
+- Updated README.md with LARRY mode documentation and CellBarcode parameters
+- Updated parameter tables to include CellBarcode and LARRY parameters
+
+### LARRY Workflow Details
+LARRY mode does NOT use discovery/whitelist mode. It:
+1. Extracts all barcodes with the fixed LARRY prefix (`GTTGCTAGGAGAGACCATATG`)
+2. Filters by minimum read count per tuple (default: 10)
+3. Clusters similar barcodes by Hamming distance (default: 3)
+4. Counts unique UMIs per (cell, barcode)
+5. Filters by minimum UMI count (default: 3)
+6. Outputs clone assignments
+
+### CellBarcode Filtering Details
+CellBarcode implements multiple filtering strategies for discovery mode:
+- **auto** (default): 1D k-means clustering on log-transformed counts
+- **manual**: User-specified threshold
+- **cluster**: Remove barcodes similar to more abundant ones
+- **combined**: Auto threshold + cluster filtering
 
 ---
 
-## [Unreleased] — v2.0.0 (Discovery Mode + Reports)
+## [v2.0.0] — Discovery Mode + Reports
 
 ### Added
 - **Discovery mode** (`--discovery_mode true`): Two-pass barcode identification without a whitelist reference
