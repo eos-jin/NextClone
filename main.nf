@@ -39,6 +39,11 @@ include {
     larry_split_reads_to_chunks
 } from "./modules/extract_larry_barcodes"
 
+// Import CellBarcode filtering process
+include { 
+    cellbarcode_filter
+} from "./modules/cellbarcode_filter"
+
 // Import scRNAseq processes
 include { 
     sc_get_unmapped_reads;
@@ -98,10 +103,18 @@ workflow {
             // Pass 1: Discover barcodes from filtered reads
             ch_discovered = dnaseq_discover_barcodes(ch_filtered_reads)
             
-            // Combine all discovered barcode counts and filter using knee-plot method
-            ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(
-                ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
-            )
+            // Combine all discovered barcode counts
+            ch_combined_counts = ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
+            
+            // Filter discovered barcodes using selected method
+            if (params.discovery_filter_method == 'cellbarcode') {
+                // CellBarcode filtering (Sun et al. 2024)
+                ch_filtered_barcodes = cellbarcode_filter(ch_combined_counts)
+                    .map { it[0] }  // Get filtered_barcodes.txt
+            } else {
+                // Default: flexiplex knee-plot filtering
+                ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(ch_combined_counts)
+            }
             
             // Pass 2: Re-read files, preprocess, split, and map with discovered barcodes
             ch_barcode_chunks = Channel.fromPath("${params.dnaseq_fastq_files}/*.fastq.gz") |
@@ -156,9 +169,19 @@ workflow {
         if (params.discovery_mode) {
             // Discovery mode: discover barcodes from LARRY data
             ch_discovered = dnaseq_discover_barcodes(ch_barcode_chunks.flatten())
-            ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(
-                ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
-            )
+            
+            // Combine all discovered barcode counts
+            ch_combined_counts = ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
+            
+            // Filter discovered barcodes using selected method
+            if (params.discovery_filter_method == 'cellbarcode') {
+                // CellBarcode filtering (Sun et al. 2024)
+                ch_filtered_barcodes = cellbarcode_filter(ch_combined_counts)
+                    .map { it[0] }  // Get filtered_barcodes.txt
+            } else {
+                // Default: flexiplex knee-plot filtering
+                ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(ch_combined_counts)
+            }
             
             // Re-split for mapping pass
             ch_map_chunks = larry_split_reads_to_chunks(ch_filtered_barcodes)
