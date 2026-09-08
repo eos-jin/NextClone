@@ -35,8 +35,7 @@ include {
 // Import LARRY processes
 include { 
     larry_extract_barcodes;
-    larry_count_barcodes;
-    larry_split_reads_to_chunks
+    larry_filter_and_cluster
 } from "./modules/extract_larry_barcodes"
 
 // Import CellBarcode filtering process
@@ -152,6 +151,14 @@ workflow {
         // LARRY requires paired R1/R2 FASTQ files:
         // - R1: Cell barcode (16bp) + UMI (8bp)
         // - R2: LARRY barcode (40bp after prefix)
+        //
+        // Workflow:
+        // 1. Extract LARRY barcodes from R1/R2 pairs
+        // 2. Filter by minimum reads per (cell, umi, barcode) tuple
+        // 3. Cluster LARRY barcodes by Hamming distance
+        // 4. Count UMIs per (cell, barcode) combination
+        // 5. Filter by minimum UMIs per (cell, barcode)
+        // 6. Output clone assignments per cell
         
         // Step 1: Extract LARRY barcodes from R1/R2 pairs
         ch_r1_files = Channel.fromPath("${params.larry_r1_files}")
@@ -159,43 +166,8 @@ workflow {
         
         ch_larry_fastq = larry_extract_barcodes(ch_r1_files, ch_r2_files)
         
-        // Step 2: Count unique barcodes
-        ch_barcode_counts = larry_count_barcodes(ch_larry_fastq)
-        
-        // Step 3: Split into chunks for parallel mapping
-        ch_barcode_chunks = larry_split_reads_to_chunks(ch_barcode_counts)
-        
-        // Step 4: Map barcodes (reuse DNAseq mapping processes)
-        if (params.discovery_mode) {
-            // Discovery mode: discover barcodes from LARRY data
-            ch_discovered = dnaseq_discover_barcodes(ch_barcode_chunks.flatten())
-            
-            // Combine all discovered barcode counts
-            ch_combined_counts = ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
-            
-            // Filter discovered barcodes using selected method
-            if (params.discovery_filter_method == 'cellbarcode') {
-                // CellBarcode filtering (Sun et al. 2024)
-                ch_filtered_barcodes = cellbarcode_filter(ch_combined_counts)
-                    .map { it[0] }  // Get filtered_barcodes.txt
-            } else {
-                // Default: flexiplex knee-plot filtering
-                ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(ch_combined_counts)
-            }
-            
-            // Re-split for mapping pass
-            ch_map_chunks = larry_split_reads_to_chunks(ch_filtered_barcodes)
-            ch_barcode_mappings = dnaseq_map_with_discovered_barcodes(
-                ch_map_chunks.flatten(),
-                ch_filtered_barcodes.first()
-            )
-        } else {
-            // Whitelist mode: map to known barcodes
-            ch_barcode_mappings = dnaseq_map_barcodes(ch_barcode_chunks.flatten())
-        }
-        
-        // Step 5: Collapse and count
-        dnaseq_collapse_barcodes(ch_barcode_mappings.collect())
+        // Step 2-6: Filter, cluster, and count (all in one step for efficiency)
+        larry_filter_and_cluster(ch_larry_fastq, "sample1")
     } 
     
     if (params.mode == 'scRNAseq') {

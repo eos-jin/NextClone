@@ -42,70 +42,35 @@ process larry_extract_barcodes {
     """
 }
 
-process larry_count_barcodes {
-    // Count unique LARRY barcodes and their frequencies
-    // Output format: barcode\tcount (compatible with NextClone DNAseq workflow)
-    label 'small'
+process larry_filter_and_cluster {
+    // Complete LARRY filtering and clustering workflow
+    // Implements the full pipeline from Weinreb et al. Science 2020:
+    // 1. Count (cell_bc, umi, larry_bc) tuples
+    // 2. Filter by minimum reads per tuple
+    // 3. Cluster LARRY barcodes by Hamming distance
+    // 4. Count UMIs per (cell, barcode) combination
+    // 5. Filter by minimum UMIs per (cell, barcode)
+    // 6. Output clone assignments per cell
+    label 'medium'
     conda "${projectDir}/conda_env/extract_dnaseq_env.yaml"
 
     input:
     path larry_fastq
+    val sample_id
 
     output:
-    path "${sample_name}_barcodes_counts.txt"
+    path "${sample_id}_larry_clones.csv"
+    path "${sample_id}_larry_filter_stats.txt"
 
     script:
-    sample_name = larry_fastq.baseName.replaceAll(/_larry_barcodes.*$/, '')
-    
     """
-    #!/usr/bin/env python3
-    import gzip
-    from collections import Counter
-    
-    # Count unique barcodes
-    barcodes = Counter()
-    
-    with gzip.open('$larry_fastq', 'rt') as f:
-        while True:
-            header = f.readline().strip()
-            if not header:
-                break
-            seq = f.readline().strip()
-            plus = f.readline().strip()
-            qual = f.readline().strip()
-            
-            if seq:
-                barcodes[seq] += 1
-    
-    # Write counts (sorted by frequency, descending)
-    with open('${sample_name}_barcodes_counts.txt', 'w') as out:
-        for bc, count in sorted(barcodes.items(), key=lambda x: -x[1]):
-            out.write(f'{bc}\\t{count}\\n')
-    
-    print(f'Counted {len(barcodes)} unique barcodes from {sum(barcodes.values())} total reads')
-    """
-}
-
-process larry_split_reads_to_chunks {
-    // Split LARRY barcodes into chunks for parallel mapping
-    // Reuses the existing dnaseq_split_reads.py script
-    label 'small'
-    conda "${projectDir}/conda_env/extract_dnaseq_env.yaml"
-
-    input:
-    path barcode_counts
-
-    output:
-    path "${outdir}/${barcode_counts.baseName}_chunk*.fasta"
-
-    script:
-    outdir = "${barcode_counts.baseName}_unmapped_chunks"
-
-    """
-    mkdir ${outdir}
-    dnaseq_split_reads.py --barcode_file ${barcode_counts} \\
-                                --sample_name ${barcode_counts.baseName} \\
-                                --n_chunks ${params.n_chunks} \\
-                                --outdir ${outdir}
+    larry_filter_and_cluster.py \
+        ${larry_fastq} \
+        ${sample_id}_larry_clones.csv \
+        --sample ${sample_id} \
+        --min-reads ${params.larry_min_reads} \
+        --min-umis ${params.larry_min_umis} \
+        --max-hamming ${params.larry_max_hamming} \
+        2> ${sample_id}_larry_filter_stats.txt
     """
 }
