@@ -105,15 +105,9 @@ workflow {
             // Combine all discovered barcode counts
             ch_combined_counts = ch_discovered.collectFile(name: 'combined_barcodes_counts.txt')
             
-            // Filter discovered barcodes using selected method
-            if (params.discovery_filter_method == 'cellbarcode') {
-                // CellBarcode filtering (Sun et al. 2024)
-                ch_filtered_barcodes = cellbarcode_filter(ch_combined_counts)
-                    .map { it[0] }  // Get filtered_barcodes.txt
-            } else {
-                // Default: flexiplex knee-plot filtering
-                ch_filtered_barcodes = dnaseq_filter_discovered_barcodes(ch_combined_counts)
-            }
+            // Filter discovered barcodes using CellBarcode (Sun et al. 2024)
+            ch_filtered_barcodes = cellbarcode_filter(ch_combined_counts)
+                .map { it[0] }  // Get filtered_barcodes.txt
             
             // Pass 2: Re-read files, preprocess, split, and map with discovered barcodes
             ch_barcode_chunks = Channel.fromPath("${params.dnaseq_fastq_files}/*.fastq.gz") |
