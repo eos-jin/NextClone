@@ -1,0 +1,9 @@
+name: cellbarcode_env
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - r-base>=4.1
+  - r-data.table
+  - bioconductor-cellbarcode
